@@ -49,8 +49,6 @@ interface DashboardProps {
 interface PRSummary {
   maxWeight: number;
   maxRepsAtMaxWeight: number;
-  timesPerformed: number;
-  isManual: boolean;
   manualUnit?: string;
 }
 
@@ -316,8 +314,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
         summary = {
           maxWeight: manual ? manual.value : 0,
           maxRepsAtMaxWeight: manual ? (manual.reps || 1) : 0,
-          timesPerformed: 0,
-          isManual: !!manual,
           manualUnit: manual ? manual.unit : undefined
         };
         map.set(exerciseId, summary);
@@ -329,11 +325,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
     if (history && Array.isArray(history)) {
       history.forEach(session => {
-        const foundExerciseIds = new Set<string>();
-
         if (session.exercises && Array.isArray(session.exercises)) {
           session.exercises.forEach(loggedEx => {
-            foundExerciseIds.add(loggedEx.exerciseId);
             const summary = getSummary(loggedEx.exerciseId);
 
             if (loggedEx.sets && Array.isArray(loggedEx.sets)) {
@@ -350,10 +343,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
             }
           });
         }
-
-        foundExerciseIds.forEach(exerciseId => {
-          getSummary(exerciseId).timesPerformed++;
-        });
       });
     }
 
@@ -509,11 +498,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   const linkedEx = exercisesList.find(e => e.id === planned.exerciseId);
                   if (!linkedEx) return null;
 
-                  const { maxWeight, maxRepsAtMaxWeight, timesPerformed, isManual, manualUnit } = exercisePRMap.get(planned.exerciseId) || {
+                  const { maxWeight, maxRepsAtMaxWeight, manualUnit } = exercisePRMap.get(planned.exerciseId) || {
                     maxWeight: 0,
                     maxRepsAtMaxWeight: 0,
-                    timesPerformed: 0,
-                    isManual: false,
                     manualUnit: undefined
                   };
 
@@ -549,44 +536,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
                               <span className="text-[8.5px] uppercase font-black tracking-widest text-zinc-500 capitalize">{linkedEx.equipment}</span>
                               <span className="text-zinc-800 text-[8px]">•</span>
                               <span className="text-[8.5px] uppercase font-bold text-zinc-400 capitalize">{linkedEx.category}</span>
-                              
-                              {timesPerformed > 0 && (
-                                <>
-                                  <span className="text-zinc-800 text-[8px]">•</span>
-                                  <span className="text-[8.5px] text-zinc-500 font-semibold">
-                                    {timesPerformed}× logged
-                                  </span>
-                                </>
-                              )}
                             </div>
                           </div>
                         </div>
 
-                        {/* Sets specs badge */}
-                        <div className="text-right shrink-0">
+                        <div className="text-right shrink-0 flex flex-col items-end gap-2">
                           <span className="font-mono text-xs bg-zinc-900 text-zinc-300 border border-zinc-800 font-black px-2.5 py-1.5 rounded-xl inline-flex flex-col items-center leading-tight shadow-inner">
                             <span>{planned.sets} × {planned.reps}</span>
                             <span className="text-violet-400 font-extrabold uppercase tracking-widest text-[8px]">{planned.unit || 'reps'}</span>
                           </span>
-                        </div>
-                      </div>
 
-                      {/* Organized Personal Record block - handles custom units beautifully! */}
-                      <div className="border-t border-zinc-900/40 pt-2.5 flex flex-wrap items-center justify-between gap-y-2 mt-0.5">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 flex items-center gap-0.5 pr-1">
-                          <Trophy className="w-3 h-3 text-amber-500 fill-current shrink-0" /> Records
-                        </span>
-
-                        {maxWeight > 0 ? (
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1 bg-zinc-950 px-2.5 py-1 rounded-xl border border-zinc-900/80 font-mono text-[11px] font-black">
-                              <span className="text-zinc-100 font-extrabold">{maxWeight}</span>
-                              <span className="text-[9.5px] font-extrabold text-zinc-500 uppercase tracking-wide">{manualUnit || settings.weightUnit}</span>
-                              <span className="text-zinc-700 text-[9px] px-1 font-sans">for</span>
-                              <span className="text-zinc-100 font-extrabold">{maxRepsAtMaxWeight}</span>
-                              <span className="text-[9.5px] font-extrabold text-zinc-500 uppercase tracking-wide">reps</span>
-                            </div>
-
+                          {maxWeight > 0 ? (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -595,26 +555,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                 setPrReps(maxRepsAtMaxWeight);
                                 setPrUnit(manualUnit || planned.unit || 'kgs');
                               }}
-                              className="p-1.5 bg-zinc-900/60 hover:bg-zinc-800 text-zinc-500 hover:text-zinc-200 rounded-lg duration-150 border border-zinc-800 transition-all active:scale-95"
+                              className="font-mono text-[8.5px] text-zinc-400 hover:text-zinc-100 font-black bg-zinc-900/70 hover:bg-zinc-800 border border-zinc-800 px-2.5 py-1 rounded-lg transition-all duration-150 active:scale-95 uppercase tracking-wide"
                               title="Edit Personal Record"
                             >
-                              <Edit2 className="w-3 h-3" />
+                              PR {maxWeight} {manualUnit || settings.weightUnit} × {maxRepsAtMaxWeight}
                             </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingPrExerciseId(planned.exerciseId);
-                              setPrValue(0);
-                              setPrReps(1);
-                              setPrUnit(planned.unit || 'kgs');
-                            }}
-                            className="text-[8.5px] text-violet-400 hover:text-violet-300 font-black tracking-widest uppercase bg-violet-600/15 px-3 py-1.5 rounded-xl border border-violet-500/25 hover:bg-violet-600/20 transition-all duration-150 active:scale-95"
-                          >
-                            Log PR
-                          </button>
-                        )}
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingPrExerciseId(planned.exerciseId);
+                                setPrValue(0);
+                                setPrReps(1);
+                                setPrUnit(planned.unit || 'kgs');
+                              }}
+                              className="text-[8.5px] text-violet-400 hover:text-violet-300 font-black tracking-widest uppercase bg-violet-600/15 px-2.5 py-1 rounded-lg border border-violet-500/25 hover:bg-violet-600/20 transition-all duration-150 active:scale-95"
+                            >
+                              Log PR
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -688,17 +648,57 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   const isSelected = selectedCategory === cat;
                   const isUnavailable = count === 0 && !isSelected;
                   
-                  // Dynamic badge tags based on selected category styling
-                  const catThemes: Record<string, string> = {
-                    all: 'hover:text-violet-400',
-                    chest: 'text-rose-400 hover:text-rose-300 bg-rose-500/10 border-rose-500/20',
-                    back: 'text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 border-emerald-500/20',
-                    legs: 'text-blue-400 hover:text-blue-300 bg-blue-500/10 border-blue-500/20',
-                    shoulders: 'text-amber-400 hover:text-amber-300 bg-amber-500/10 border-amber-500/20',
-                    arms: 'text-violet-400 hover:text-violet-300 bg-violet-500/10 border-violet-500/20',
-                    core: 'text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 border-cyan-500/20',
-                    cardio: 'text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 border-indigo-500/20'
+                  const catThemes: Record<string, { idle: string; active: string; countIdle: string; countActive: string }> = {
+                    all: {
+                      idle: 'bg-violet-600/10 border-violet-500/30 text-violet-300 hover:text-violet-200',
+                      active: 'bg-violet-600/20 border-violet-500/50 text-violet-100',
+                      countIdle: 'bg-violet-950/50 text-violet-300',
+                      countActive: 'bg-violet-500/35 text-violet-100'
+                    },
+                    chest: {
+                      idle: 'bg-rose-500/10 border-rose-500/20 text-rose-400 hover:text-rose-300',
+                      active: 'bg-rose-500/20 border-rose-500/50 text-rose-100',
+                      countIdle: 'bg-rose-950/50 text-rose-300',
+                      countActive: 'bg-rose-500/30 text-rose-100'
+                    },
+                    back: {
+                      idle: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:text-emerald-300',
+                      active: 'bg-emerald-500/20 border-emerald-500/50 text-emerald-100',
+                      countIdle: 'bg-emerald-950/50 text-emerald-300',
+                      countActive: 'bg-emerald-500/30 text-emerald-100'
+                    },
+                    shoulders: {
+                      idle: 'bg-amber-500/10 border-amber-500/20 text-amber-400 hover:text-amber-300',
+                      active: 'bg-amber-500/20 border-amber-500/50 text-amber-100',
+                      countIdle: 'bg-amber-950/50 text-amber-300',
+                      countActive: 'bg-amber-500/30 text-amber-100'
+                    },
+                    arms: {
+                      idle: 'bg-violet-500/10 border-violet-500/20 text-violet-400 hover:text-violet-300',
+                      active: 'bg-violet-500/20 border-violet-500/50 text-violet-100',
+                      countIdle: 'bg-violet-950/50 text-violet-300',
+                      countActive: 'bg-violet-500/30 text-violet-100'
+                    },
+                    legs: {
+                      idle: 'bg-blue-500/10 border-blue-500/20 text-blue-400 hover:text-blue-300',
+                      active: 'bg-blue-500/20 border-blue-500/50 text-blue-100',
+                      countIdle: 'bg-blue-950/50 text-blue-300',
+                      countActive: 'bg-blue-500/30 text-blue-100'
+                    },
+                    core: {
+                      idle: 'bg-cyan-500/10 border-cyan-500/20 text-cyan-400 hover:text-cyan-300',
+                      active: 'bg-cyan-500/20 border-cyan-500/50 text-cyan-100',
+                      countIdle: 'bg-cyan-950/50 text-cyan-300',
+                      countActive: 'bg-cyan-500/30 text-cyan-100'
+                    },
+                    cardio: {
+                      idle: 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400 hover:text-indigo-300',
+                      active: 'bg-indigo-500/20 border-indigo-500/50 text-indigo-100',
+                      countIdle: 'bg-indigo-950/50 text-indigo-300',
+                      countActive: 'bg-indigo-500/30 text-indigo-100'
+                    }
                   };
+                  const theme = catThemes[cat] || catThemes.all;
 
                   return (
                     <button
@@ -707,15 +707,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       disabled={isUnavailable}
                       className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide whitespace-nowrap transition border flex items-center gap-1.5 ${
                         isSelected
-                          ? 'bg-violet-600/15 text-violet-300 border-violet-500/40 shadow-sm'
+                          ? `${theme.active} shadow-sm`
                           : isUnavailable
-                            ? 'bg-zinc-900 border-zinc-800 text-zinc-400 opacity-40 cursor-not-allowed'
-                          : `bg-zinc-900 border-zinc-800 text-zinc-400 ${catThemes[cat] || 'hover:text-zinc-200'}`
+                            ? `${theme.idle} opacity-40 cursor-not-allowed`
+                            : theme.idle
                       }`}
                     >
                       <span className="capitalize">{cat}</span>
                       <span className={`text-[8.5px] font-mono px-1.5 py-0.5 rounded-full font-black ${
-                        isSelected ? 'bg-violet-500/30 text-violet-200' : 'bg-zinc-950 text-zinc-500'
+                        isSelected ? theme.countActive : theme.countIdle
                       }`}>
                         {count}
                       </span>
@@ -790,6 +790,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     core: 'border-l-cyan-500/60',
                     cardio: 'border-l-indigo-500/60'
                   };
+                  const categoryWordThemes: Record<string, string> = {
+                    chest: 'bg-rose-500/10 border-rose-500/20 text-rose-400',
+                    back: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
+                    legs: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
+                    shoulders: 'bg-amber-500/10 border-amber-500/20 text-amber-400',
+                    arms: 'bg-violet-500/10 border-violet-500/20 text-violet-400',
+                    core: 'bg-cyan-500/10 border-cyan-500/20 text-cyan-400',
+                    cardio: 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400'
+                  };
 
                   return (
                     <div
@@ -797,12 +806,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       onClick={() => onViewExercise(ex)}
                       className={`p-3.5 bg-zinc-950/45 hover:bg-zinc-950/85 border border-zinc-900/50 border-l-4 ${categoryBorderThemes[ex.category] || 'border-l-zinc-700'} hover:border-zinc-800 rounded-2xl flex items-start justify-between gap-3 cursor-pointer transition duration-150 group shadow-sm`}
                     >
-                      <div className="min-w-0 flex-1 flex flex-col gap-2">
-                        <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                           <div className="p-1 bg-zinc-900 border border-zinc-800 rounded-lg shrink-0">
                             <PoseIcon name={ex.poseIcon} size={36} className="shrink-0 scale-95 transition-transform group-hover:scale-105" />
                           </div>
-                          <div className="min-w-0">
+                          <div className="min-w-0 space-y-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <h4 className="text-xs font-black text-zinc-200 tracking-tight group-hover:text-violet-400 transition-colors">{ex.name}</h4>
                               
@@ -813,20 +822,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                 </span>
                               )}
                             </div>
-                          </div>
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-[9px] text-zinc-500 font-semibold mb-1 leading-relaxed line-clamp-2">{description}</p>
+                            <p className="text-[9px] text-zinc-500 font-semibold leading-relaxed line-clamp-1">{description}</p>
                           
-                          <div className="flex flex-wrap items-center gap-1">
-                            <span className="text-[8px] bg-zinc-900 border border-zinc-800 font-mono text-zinc-400 font-bold px-1 py-0.5 rounded capitalize">
-                              {ex.equipment}
-                            </span>
-                            {ex.primaryMuscles.slice(0, 1).map(muscle => (
-                              <span key={muscle} className="text-[8px] bg-blue-600/5 border border-blue-500/10 text-blue-400 font-bold px-1 py-0.5 rounded capitalize">
-                                {formatMuscleLabel(muscle)}
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className="text-[8px] bg-zinc-900 border border-zinc-800 font-mono text-zinc-400 font-bold px-1 py-0.5 rounded capitalize">
+                                {ex.equipment}
                               </span>
-                            ))}
+                              {ex.primaryMuscles.slice(0, 1).map(muscle => (
+                                <span key={muscle} className={`text-[8px] border font-bold px-1 py-0.5 rounded capitalize ${categoryWordThemes[ex.category] || 'bg-zinc-900 border-zinc-800 text-zinc-400'}`}>
+                                  {formatMuscleLabel(muscle)}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       </div>
