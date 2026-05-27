@@ -2,6 +2,11 @@ node_modules/
 build/
 dist/
 coverage/
+src-tauri/
+ui-check-screenshots/
+android/.gradle/
+android/.idea/
+android/**/build/
 .DS_Store
 *.log
 .env*

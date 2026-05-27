@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="116" fill="#09090b"/>
+  <circle cx="256" cy="256" r="188" fill="#6d28d9" opacity="0.18"/>
+  <path d="M128 234h48v44h-48v-44Zm208 0h48v44h-48v-44ZM190 210h132v92H190v-92Z" fill="#a78bfa"/>
+  <path d="M176 184h28v144h-28V184Zm132 0h28v144h-28V184Z" fill="#f8fafc"/>
+  <path d="M220 244h72v24h-72v-24Z" fill="#09090b"/>
+  <text x="256" y="408" text-anchor="middle" font-family="Arial, sans-serif" font-size="54" font-weight="900" fill="#f8fafc">GB</text>
+</svg>
