@@ -7,6 +7,7 @@ import React, { useMemo, useState } from 'react';
 import { Routine, Exercise, PlannedExercise, WorkoutSettings, WorkoutSession, MuscleGroup } from '../types';
 import { PoseIcon } from './PoseIcon';
 import { EXERCISES } from '../data/exercises';
+import { getUnitTraits, UNIT_TRAITS } from '../data/unit-traits';
 import { ConfirmModal } from './ConfirmModal';
 import {
   Calendar,
@@ -99,6 +100,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Simple routine addition drawer toggle
   const [showRoutineModal, setShowRoutineModal] = useState(false);
+  // Inside the routine modal: search + filter the candidate exercise list
+  // (mirrors the Library experience so picking is fast and consistent).
+  const [modalSearch, setModalSearch] = useState('');
+  const [modalCategory, setModalCategory] = useState('all');
+  const [modalEquipment, setModalEquipment] = useState('all');
   
   // Custom Exercise Creation Form
   const [showCreateExModal, setShowCreateExModal] = useState(false);
@@ -252,12 +258,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Modify set targets inside routine builder
   const handleUpdatePlannedSetRep = (exerciseId: string, field: 'sets' | 'reps' | 'unit', value: any) => {
-    setRoutineFormExercises(prev => 
+    setRoutineFormExercises(prev =>
       prev.map(planned => {
-        if (planned.exerciseId === exerciseId) {
-          return { ...planned, [field]: value };
+        if (planned.exerciseId !== exerciseId) return planned;
+        const next = { ...planned, [field]: value };
+        // When the user switches to a unit that doesn't support multiple
+        // sets (km, sec, min — one-shot cardio), normalize sets to 1 so
+        // the persisted data matches the visible "no sets" UI.
+        if (field === 'unit' && !getUnitTraits(value).supportsSets) {
+          next.sets = 1;
         }
-        return planned;
+        return next;
       })
     );
   };
@@ -292,13 +303,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const [editingPrExerciseId, setEditingPrExerciseId] = useState<string | null>(null);
   const [prValue, setPrValue] = useState<number>(0);
-  const [prReps, setPrReps] = useState<number>(1);
+  // 0 means "PR without a reps count", e.g. just "50 kg" — rendered as
+  // a one-line badge instead of the "100 × 8" two-row layout.
+  const [prReps, setPrReps] = useState<number>(0);
   const [prUnit, setPrUnit] = useState<string>('kgs');
 
   const handleSaveManualPR = (exerciseId: string, value: number, reps: number, unit: string) => {
     const updated = {
       ...manualPRs,
-      [exerciseId]: { value, reps, unit }
+      [exerciseId]: reps > 0 ? { value, reps, unit } : { value, unit }
     };
     setManualPRs(updated);
     localStorage.setItem('gym_manual_prs', JSON.stringify(updated));
@@ -313,7 +326,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
         const manual = manualPRs[exerciseId];
         summary = {
           maxWeight: manual ? manual.value : 0,
-          maxRepsAtMaxWeight: manual ? (manual.reps || 1) : 0,
+          // 0 here means "reps not tracked" — display logic uses this to
+          // render a one-line PR (e.g. "PR 50 kg") instead of "PR 100 × 8".
+          maxRepsAtMaxWeight: manual?.reps ?? 0,
           manualUnit: manual ? manual.unit : undefined
         };
         map.set(exerciseId, summary);
@@ -506,13 +521,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
                   // Colors mapped for category visuals
                   const borderThemes: Record<string, string> = {
-                    chest: 'border-l-rose-500/85',
-                    back: 'border-l-emerald-500/85',
-                    legs: 'border-l-blue-500/85',
-                    shoulders: 'border-l-amber-500/85',
-                    arms: 'border-l-violet-500/85',
-                    core: 'border-l-cyan-500/85',
-                    cardio: 'border-l-indigo-500/85'
+                    chest: 'border-l-rose-500/85 group-hover:border-l-rose-500/55',
+                    back: 'border-l-emerald-500/85 group-hover:border-l-emerald-500/55',
+                    legs: 'border-l-blue-500/85 group-hover:border-l-blue-500/55',
+                    shoulders: 'border-l-amber-500/85 group-hover:border-l-amber-500/55',
+                    arms: 'border-l-violet-500/85 group-hover:border-l-violet-500/55',
+                    core: 'border-l-cyan-500/85 group-hover:border-l-cyan-500/55',
+                    cardio: 'border-l-indigo-500/85 group-hover:border-l-indigo-500/55'
                   };
 
                   return (
@@ -524,9 +539,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-center gap-3">
-                          <div className="p-1 bg-zinc-900 border border-zinc-800 rounded-xl relative">
-                            <PoseIcon name={linkedEx.poseIcon} size={36} className="shrink-0 transition-transform duration-300 group-hover:scale-105" />
-                          </div>
+                          <PoseIcon name={linkedEx.poseIcon} size={42} className="shrink-0" />
                           <div>
                             <span className="font-extrabold text-xs text-white leading-tight block tracking-tight group-hover:text-violet-400 transition-colors">
                               {linkedEx.name}
@@ -540,36 +553,64 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           </div>
                         </div>
 
-                        <div className="text-right shrink-0 flex flex-col items-end gap-2">
-                          <span className="font-mono text-xs bg-zinc-900 text-zinc-300 border border-zinc-800 font-black px-2.5 py-1.5 rounded-xl inline-flex flex-col items-center leading-tight shadow-inner">
-                            <span>{planned.sets} × {planned.reps}</span>
-                            <span className="text-violet-400 font-extrabold uppercase tracking-widest text-[8px]">{planned.unit || 'reps'}</span>
-                          </span>
+                        {/* Right column: sets/value badge + PR button on the
+                            SAME row so every card has a single horizontal
+                            metrics strip regardless of measurement type. */}
+                        <div className="shrink-0 flex items-center gap-2">
+                          {(() => {
+                            const traits = getUnitTraits(planned.unit);
+                            return (
+                              <span className="font-mono text-xs bg-zinc-900 text-zinc-300 border border-zinc-800 font-black px-2.5 py-1.5 rounded-xl inline-flex flex-col items-center leading-tight shadow-inner min-w-[58px]">
+                                <span>
+                                  {traits.supportsSets
+                                    ? <>{planned.sets} × {planned.reps}</>
+                                    : <>{planned.reps}</>
+                                  }
+                                </span>
+                                <span className="text-violet-400 font-extrabold uppercase tracking-widest text-[8px]">{traits.shortLabel}</span>
+                              </span>
+                            );
+                          })()}
 
-                          {maxWeight > 0 ? (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingPrExerciseId(planned.exerciseId);
-                                setPrValue(maxWeight);
-                                setPrReps(maxRepsAtMaxWeight);
-                                setPrUnit(manualUnit || planned.unit || 'kgs');
-                              }}
-                              className="font-mono text-[8.5px] text-zinc-400 hover:text-zinc-100 font-black bg-zinc-900/70 hover:bg-zinc-800 border border-zinc-800 px-2.5 py-1 rounded-lg transition-all duration-150 active:scale-95 uppercase tracking-wide"
-                              title="Edit Personal Record"
-                            >
-                              PR {maxWeight} {manualUnit || settings.weightUnit} × {maxRepsAtMaxWeight}
-                            </button>
-                          ) : (
+                          {maxWeight > 0 ? (() => {
+                            // Mirror the sets-reps badge's two-row structure:
+                            // value (with optional × reps) on top, unit on
+                            // bottom, so the right strip stays visually
+                            // coherent between "4 × 6-10 / REPS" on the left
+                            // pill and "PR 100 × 8 / KG" on the right pill.
+                            const prTraits = getUnitTraits(manualUnit || planned.unit);
+                            return (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingPrExerciseId(planned.exerciseId);
+                                  setPrValue(maxWeight);
+                                  setPrReps(maxRepsAtMaxWeight);
+                                  setPrUnit(manualUnit || planned.unit || 'kgs');
+                                }}
+                                className="font-mono text-xs text-violet-200 hover:text-violet-100 font-black bg-violet-600/15 hover:bg-violet-600/25 border border-violet-500/30 px-2.5 py-1.5 rounded-xl transition-all duration-150 active:scale-95 uppercase tracking-wide inline-flex flex-col items-center leading-tight min-w-[58px]"
+                                title="Edit Personal Record"
+                              >
+                                <span className="whitespace-nowrap">
+                                  <span className="text-[8px] text-violet-400 tracking-widest mr-1">PR</span>
+                                  {maxWeight}
+                                  {maxRepsAtMaxWeight > 0 && (
+                                    <> <span className="text-violet-400/60">×</span> {maxRepsAtMaxWeight}</>
+                                  )}
+                                </span>
+                                <span className="text-violet-400 font-extrabold uppercase tracking-widest text-[8px]">{prTraits.shortLabel}</span>
+                              </button>
+                            );
+                          })() : (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setEditingPrExerciseId(planned.exerciseId);
                                 setPrValue(0);
-                                setPrReps(1);
+                                setPrReps(0);
                                 setPrUnit(planned.unit || 'kgs');
                               }}
-                              className="text-[8.5px] text-violet-400 hover:text-violet-300 font-black tracking-widest uppercase bg-violet-600/15 px-2.5 py-1 rounded-lg border border-violet-500/25 hover:bg-violet-600/20 transition-all duration-150 active:scale-95"
+                              className="text-[8.5px] text-violet-400 hover:text-violet-300 font-black tracking-widest uppercase bg-violet-600/15 px-2.5 py-1.5 rounded-lg border border-violet-500/25 hover:bg-violet-600/20 transition-all duration-150 active:scale-95 min-w-[52px]"
                             >
                               Log PR
                             </button>
@@ -591,50 +632,48 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* TAB 2: EXERCISE REFERENCE LIBRARY */}
       {activeTab === 'library' && (
         <div className="space-y-4 animate-fade-in" id="dashboard-library-panel">
-          
-          <div className="flex items-center justify-between pointer-events-auto">
-            <div>
-              <h2 className="text-xs font-black uppercase tracking-widest text-zinc-500">Exercise Reference Database</h2>
-              <span className="text-[10px] text-zinc-500 font-bold">Browse blueprints, instructions & primary targets</span>
+
+          {/* Search bar + inline CUSTOM action — replaces the old header
+              "EXERCISE REFERENCE DATABASE" block to save vertical space. */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search exercises, muscles..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-900 focus:border-violet-600 focus:ring-1 focus:ring-violet-600/30 transition pl-10 pr-10 py-3 text-xs rounded-2xl text-zinc-200 placeholder-zinc-600 focus:outline-none"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-zinc-500 hover:text-zinc-300 rounded"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
-            
+
             <button
               onClick={() => setShowCreateExModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-xl text-[10px] uppercase font-black text-zinc-300 hover:text-white transition duration-150"
+              className="shrink-0 flex items-center gap-1.5 px-3 py-3 bg-zinc-950 border border-zinc-900 rounded-2xl text-[10px] uppercase font-black text-zinc-300 hover:text-white hover:border-violet-700 transition duration-150"
+              title="Create a custom exercise"
             >
               <PlusCircle className="w-3.5 h-3.5 text-violet-400" /> Custom
             </button>
           </div>
 
-          {/* Precise search & filtering row */}
+          {/* Filter card */}
           <div className="bg-zinc-950 border border-zinc-900 p-4 rounded-3xl space-y-3.5 shadow-xl">
             <div className="flex items-center justify-between">
-              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 pl-0.5 block">Filters</span>
+              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 pl-0.5 block">Refine by muscle &amp; equipment</span>
               {(searchQuery || selectedCategory !== 'all' || selectedEquipment !== 'all') && (
                 <button
                   onClick={clearFilters}
                   className="text-[9px] font-black uppercase tracking-wider text-violet-400 hover:text-violet-300 transition duration-150"
                 >
-                  Reset Active Filters
-                </button>
-              )}
-            </div>
-
-            <div className="relative">
-              <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3.5" />
-              <input
-                type="text"
-                placeholder="Search exercise catalog, targeted trains info..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-800 focus:border-violet-600 focus:ring-1 focus:ring-violet-600/30 transition pl-10 pr-10 py-3 text-xs rounded-2xl text-zinc-200 placeholder-zinc-600 focus:outline-none"
-              />
-              {searchQuery && (
-                <button 
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3.5 top-3.5 p-0.5 text-zinc-500 hover:text-zinc-300 rounded"
-                >
-                  <X className="w-3.5 h-3.5" />
+                  Reset
                 </button>
               )}
             </div>
@@ -703,7 +742,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   return (
                     <button
                       key={cat}
-                      onClick={isUnavailable ? undefined : () => setSelectedCategory(cat)}
+                      onClick={
+                        isUnavailable
+                          ? undefined
+                          : () => setSelectedCategory(cat === selectedCategory ? 'all' : cat)
+                      }
                       disabled={isUnavailable}
                       className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide whitespace-nowrap transition border flex items-center gap-1.5 ${
                         isSelected
@@ -736,7 +779,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   return (
                     <button
                       key={eq}
-                      onClick={isUnavailable ? undefined : () => setSelectedEquipment(eq)}
+                      onClick={
+                        isUnavailable
+                          ? undefined
+                          : () => setSelectedEquipment(eq === selectedEquipment ? 'all' : eq)
+                      }
                       disabled={isUnavailable}
                       className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide whitespace-nowrap transition border flex items-center gap-1.5 ${
                         isSelected
@@ -782,13 +829,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   
                   // Category pill border
                   const categoryBorderThemes: Record<string, string> = {
-                    chest: 'border-l-rose-500/60',
-                    back: 'border-l-emerald-500/60',
-                    legs: 'border-l-blue-500/60',
-                    shoulders: 'border-l-amber-500/60',
-                    arms: 'border-l-violet-500/60',
-                    core: 'border-l-cyan-500/60',
-                    cardio: 'border-l-indigo-500/60'
+                    chest: 'border-l-rose-500/60 group-hover:border-l-rose-500/35',
+                    back: 'border-l-emerald-500/60 group-hover:border-l-emerald-500/35',
+                    legs: 'border-l-blue-500/60 group-hover:border-l-blue-500/35',
+                    shoulders: 'border-l-amber-500/60 group-hover:border-l-amber-500/35',
+                    arms: 'border-l-violet-500/60 group-hover:border-l-violet-500/35',
+                    core: 'border-l-cyan-500/60 group-hover:border-l-cyan-500/35',
+                    cardio: 'border-l-indigo-500/60 group-hover:border-l-indigo-500/35'
                   };
                   const categoryWordThemes: Record<string, string> = {
                     chest: 'bg-rose-500/10 border-rose-500/20 text-rose-400',
@@ -804,13 +851,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <div
                       key={ex.id}
                       onClick={() => onViewExercise(ex)}
-                      className={`p-3.5 bg-zinc-950/45 hover:bg-zinc-950/85 border border-zinc-900/50 border-l-4 ${categoryBorderThemes[ex.category] || 'border-l-zinc-700'} hover:border-zinc-800 rounded-2xl flex items-start justify-between gap-3 cursor-pointer transition duration-150 group shadow-sm`}
+                      className={`p-3.5 bg-zinc-950/45 hover:bg-zinc-950/85 border border-zinc-900/50 border-l-4 ${categoryBorderThemes[ex.category] || 'border-l-zinc-700'} rounded-2xl flex items-start justify-between gap-3 cursor-pointer transition-all duration-200 group shadow-sm hover:scale-[101%]`}
                     >
                       <div className="min-w-0 flex-1">
                         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
-                          <div className="p-1 bg-zinc-900 border border-zinc-800 rounded-lg shrink-0">
-                            <PoseIcon name={ex.poseIcon} size={36} className="shrink-0 scale-95 transition-transform group-hover:scale-105" />
-                          </div>
+                          <PoseIcon name={ex.poseIcon} size={42} className="shrink-0" />
                           <div className="min-w-0 space-y-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <h4 className="text-xs font-black text-zinc-200 tracking-tight group-hover:text-violet-400 transition-colors">{ex.name}</h4>
@@ -855,7 +900,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             {isPlannedInSelectedRoutine ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
                           </button>
                         )}
-                        <ChevronRight className="w-3.5 h-3.5 text-zinc-600 group-hover:text-zinc-400 group-hover:translate-x-0.5 transition duration-150 mt-2" />
+                        <ChevronRight className="w-3.5 h-3.5 text-zinc-600 group-hover:text-zinc-400 transition-colors duration-150 mt-2" />
                       </div>
                     </div>
                   );
@@ -896,91 +941,238 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 />
               </div>
 
-              {/* Exercises selector checklist */}
+              {/* Exercise picker with search + filter (mirrors the Library) */}
               <div className="space-y-3">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Filter and choose exercises ({routineFormExercises.length} chosen)</label>
-                <div className="max-h-56 overflow-y-auto border border-zinc-900 rounded-2xl divide-y divide-zinc-900 p-1 bg-zinc-900/10">
-                  {exercisesList.map(ex => {
-                    const isSelected = routineFormExercises.some(p => p.exerciseId === ex.id);
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                    Pick exercises ({routineFormExercises.length} chosen)
+                  </label>
+                  {(modalSearch || modalCategory !== 'all' || modalEquipment !== 'all') && (
+                    <button
+                      onClick={() => { setModalSearch(''); setModalCategory('all'); setModalEquipment('all'); }}
+                      className="text-[9px] font-black uppercase tracking-wider text-violet-400 hover:text-violet-300"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+
+                {/* Search input */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search exercises, muscles..."
+                    value={modalSearch}
+                    onChange={(e) => setModalSearch(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-9 py-2.5 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-violet-600"
+                  />
+                  {modalSearch && (
+                    <button
+                      onClick={() => setModalSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Category pills with color coding */}
+                <div className="flex flex-wrap gap-1.5">
+                  {categories.map(cat => {
+                    const isSelected = modalCategory === cat;
+                    const catColors: Record<string, string> = {
+                      all: 'bg-violet-600/15 text-violet-200 border-violet-500/40',
+                      chest: 'bg-rose-500/15 text-rose-300 border-rose-500/35',
+                      back: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35',
+                      legs: 'bg-blue-500/15 text-blue-300 border-blue-500/35',
+                      shoulders: 'bg-amber-500/15 text-amber-300 border-amber-500/35',
+                      arms: 'bg-violet-500/15 text-violet-300 border-violet-500/35',
+                      core: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/35',
+                      cardio: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/35'
+                    };
+                    const idleColors: Record<string, string> = {
+                      all: 'bg-zinc-900 text-zinc-400 border-zinc-800',
+                      chest: 'bg-zinc-900 text-rose-400/70 border-zinc-800 hover:border-rose-500/30',
+                      back: 'bg-zinc-900 text-emerald-400/70 border-zinc-800 hover:border-emerald-500/30',
+                      legs: 'bg-zinc-900 text-blue-400/70 border-zinc-800 hover:border-blue-500/30',
+                      shoulders: 'bg-zinc-900 text-amber-400/70 border-zinc-800 hover:border-amber-500/30',
+                      arms: 'bg-zinc-900 text-violet-400/70 border-zinc-800 hover:border-violet-500/30',
+                      core: 'bg-zinc-900 text-cyan-400/70 border-zinc-800 hover:border-cyan-500/30',
+                      cardio: 'bg-zinc-900 text-indigo-400/70 border-zinc-800 hover:border-indigo-500/30'
+                    };
                     return (
-                      <div
-                        key={ex.id}
-                        onClick={() => handleTogglePlannedExercise(ex.id)}
-                        className={`p-3.5 flex items-center justify-between rounded-xl cursor-pointer transition ${
-                          isSelected ? 'bg-zinc-900/60' : 'hover:bg-zinc-900/20'
-                        }`}
+                      <button
+                        key={cat}
+                        onClick={() => setModalCategory(cat === modalCategory ? 'all' : cat)}
+                        className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wide border transition-all ${isSelected ? catColors[cat] : idleColors[cat]}`}
                       >
-                        <div className="flex items-center gap-2.5">
-                          <PoseIcon name={ex.poseIcon} size={32} className="shrink-0 scale-90" />
-                          <div>
-                            <span className="text-xs font-bold text-white block">{ex.name}</span>
-                            <span className="text-[9px] text-zinc-500 capitalize">{ex.equipment}</span>
-                          </div>
-                        </div>
-                        <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition ${
-                          isSelected ? 'bg-violet-600 border-violet-500 text-white' : 'border-zinc-800 text-transparent'
-                        }`}>
-                          <Check className="w-3.5 h-3.5 font-bold" />
-                        </div>
-                      </div>
+                        {cat}
+                      </button>
                     );
                   })}
                 </div>
+
+                {/* Equipment pills (compact) */}
+                <div className="flex flex-wrap gap-1.5">
+                  {equipments.map(eq => {
+                    const isSelected = modalEquipment === eq;
+                    return (
+                      <button
+                        key={eq}
+                        onClick={() => setModalEquipment(eq === modalEquipment ? 'all' : eq)}
+                        className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wide border transition-all ${
+                          isSelected
+                            ? 'bg-indigo-600/15 text-indigo-200 border-indigo-500/40'
+                            : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700'
+                        }`}
+                      >
+                        {eq}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Candidate list — color-coded left accent per category */}
+                <div className="max-h-56 overflow-y-auto border border-zinc-900 rounded-2xl divide-y divide-zinc-900 p-1 bg-zinc-900/10">
+                  {(() => {
+                    const q = modalSearch.toLowerCase();
+                    const candidates = exercisesList.filter(ex => {
+                      const muscleStr = [...(ex.primaryMuscles || []), ...(ex.secondaryMuscles || [])].join(' ').replace(/-/g, ' ').toLowerCase();
+                      const matchesSearch = !q || ex.name.toLowerCase().includes(q) || (ex.whatItTrains || '').toLowerCase().includes(q) || muscleStr.includes(q);
+                      const matchesCat = modalCategory === 'all' || ex.category === modalCategory;
+                      const matchesEq = modalEquipment === 'all' || ex.equipment === modalEquipment;
+                      return matchesSearch && matchesCat && matchesEq;
+                    });
+
+                    const accent: Record<string, string> = {
+                      chest: 'border-l-rose-500/70',
+                      back: 'border-l-emerald-500/70',
+                      legs: 'border-l-blue-500/70',
+                      shoulders: 'border-l-amber-500/70',
+                      arms: 'border-l-violet-500/70',
+                      core: 'border-l-cyan-500/70',
+                      cardio: 'border-l-indigo-500/70'
+                    };
+
+                    if (candidates.length === 0) {
+                      return <div className="py-8 text-center text-[10px] text-zinc-500 uppercase tracking-widest font-black">No matches</div>;
+                    }
+
+                    return candidates.map(ex => {
+                      const isSelected = routineFormExercises.some(p => p.exerciseId === ex.id);
+                      return (
+                        <div
+                          key={ex.id}
+                          onClick={() => handleTogglePlannedExercise(ex.id)}
+                          className={`p-3 flex items-center justify-between rounded-xl cursor-pointer transition border-l-4 ${accent[ex.category] || 'border-l-zinc-700'} ${
+                            isSelected ? 'bg-zinc-900/70' : 'hover:bg-zinc-900/30'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <PoseIcon name={ex.poseIcon} size={32} className="shrink-0" />
+                            <div className="min-w-0">
+                              <span className="text-xs font-bold text-white block truncate">{ex.name}</span>
+                              <span className="text-[9px] text-zinc-500 capitalize">{ex.equipment} · {ex.category}</span>
+                            </div>
+                          </div>
+                          <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition shrink-0 ml-2 ${
+                            isSelected ? 'bg-violet-600 border-violet-500 text-white' : 'border-zinc-800 text-transparent'
+                          }`}>
+                            <Check className="w-3.5 h-3.5 font-bold" />
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
               </div>
 
-              {/* Adjust sets and reps for selected exercises */}
+              {/* Configure each selected exercise — 2-row layout per exercise:
+                  row 1 = pose icon + name + remove, row 2 = inputs.
+                  Sets input is hidden for cardio units (km/sec/min) since
+                  those don't fit a "sets × value" mental model. */}
               {routineFormExercises.length > 0 && (
                 <div className="space-y-3">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Configure Planned Sets & Reps</label>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Configure each exercise</label>
                   <div className="space-y-3">
                     {routineFormExercises.map(planned => {
                       const matchedEx = exercisesList.find(e => e.id === planned.exerciseId);
                       if (!matchedEx) return null;
+                      const traits = getUnitTraits(planned.unit);
+                      const accent: Record<string, string> = {
+                        chest: 'border-l-rose-500/70',
+                        back: 'border-l-emerald-500/70',
+                        legs: 'border-l-blue-500/70',
+                        shoulders: 'border-l-amber-500/70',
+                        arms: 'border-l-violet-500/70',
+                        core: 'border-l-cyan-500/70',
+                        cardio: 'border-l-indigo-500/70'
+                      };
 
                       return (
-                        <div key={planned.exerciseId} className="p-3 bg-zinc-900/40 rounded-2xl border border-zinc-900/60 flex items-center justify-between gap-4">
-                          <span className="text-xs font-bold text-zinc-300 truncate shrink-0 max-w-[120px]">{matchedEx.name}</span>
-                          
-                          <div className="flex items-center gap-3">
-                            {/* Sets target */}
-                            <div className="flex items-center gap-1.5 bg-zinc-950 px-2 py-1 rounded-xl border border-zinc-900">
-                              <span className="text-[9px] text-zinc-500 uppercase font-bold">Sets</span>
-                              <input
-                                type="number"
-                                min={1}
-                                max={10}
-                                value={planned.sets}
-                                onChange={(e) => handleUpdatePlannedSetRep(planned.exerciseId, 'sets', parseInt(e.target.value) || 3)}
-                                className="w-6 bg-transparent text-xs text-center font-bold font-mono focus:outline-none"
-                              />
+                        <div
+                          key={planned.exerciseId}
+                          className={`bg-zinc-900/40 rounded-2xl border border-zinc-900/60 border-l-4 ${accent[matchedEx.category] || 'border-l-zinc-700'} p-3 space-y-2.5`}
+                        >
+                          {/* Row 1: identity */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <PoseIcon name={matchedEx.poseIcon} size={28} className="shrink-0" />
+                              <span className="text-xs font-bold text-zinc-100 truncate">{matchedEx.name}</span>
                             </div>
+                            <button
+                              onClick={() => handleTogglePlannedExercise(planned.exerciseId)}
+                              className="shrink-0 p-1 rounded-md text-zinc-600 hover:text-red-400 hover:bg-zinc-900 transition"
+                              title="Remove from routine"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
 
-                            {/* Reps scope e.g. "8-12" */}
-                            <div className="flex items-center gap-1.5 bg-zinc-950 px-2 py-1 rounded-xl border border-zinc-900">
-                              <span className="text-[9px] text-zinc-500 uppercase font-bold">Target</span>
+                          {/* Row 2: inputs, aligned in a flex with consistent
+                              widths. When unit doesn't support sets, the Sets
+                              control disappears so the row stays clean. */}
+                          <div className="grid grid-cols-[1fr_1fr_1fr] gap-2">
+                            {traits.supportsSets ? (
+                              <div className="flex items-center justify-between bg-zinc-950 px-2.5 py-1.5 rounded-xl border border-zinc-900">
+                                <span className="text-[9px] text-zinc-500 uppercase font-bold">Sets</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={10}
+                                  value={planned.sets}
+                                  onChange={(e) => handleUpdatePlannedSetRep(planned.exerciseId, 'sets', parseInt(e.target.value) || 3)}
+                                  className="w-8 bg-transparent text-xs text-center font-bold font-mono focus:outline-none"
+                                />
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center bg-zinc-950/40 px-2.5 py-1.5 rounded-xl border border-dashed border-zinc-900 text-[9px] text-zinc-600 uppercase tracking-wider font-bold">
+                                no sets
+                              </div>
+                            )}
+
+                            <div className="flex items-center justify-between bg-zinc-950 px-2.5 py-1.5 rounded-xl border border-zinc-900">
+                              <span className="text-[9px] text-zinc-500 uppercase font-bold">{traits.supportsSets ? 'Target' : traits.shortLabel}</span>
                               <input
                                 type="text"
-                                placeholder="8-12"
+                                placeholder={traits.supportsSets ? '8-12' : traits.defaultValue}
                                 value={planned.reps}
                                 onChange={(e) => handleUpdatePlannedSetRep(planned.exerciseId, 'reps', e.target.value)}
-                                className="w-12 bg-transparent text-xs text-center font-bold focus:outline-none"
+                                className="w-14 bg-transparent text-xs text-center font-bold focus:outline-none"
                               />
                             </div>
 
-                            {/* Measurement unit dropdown selection */}
-                            <div className="flex items-center gap-1 bg-zinc-950 px-2 py-1 rounded-xl border border-zinc-900">
+                            <div className="flex items-center justify-between bg-zinc-950 px-2.5 py-1.5 rounded-xl border border-zinc-900">
                               <span className="text-[9px] text-zinc-500 uppercase font-bold">Unit</span>
                               <select
                                 value={planned.unit || 'reps'}
                                 onChange={(e) => handleUpdatePlannedSetRep(planned.exerciseId, 'unit', e.target.value)}
-                                className="bg-transparent text-xs font-black focus:outline-none text-zinc-300 text-center cursor-pointer border-none"
+                                className="bg-transparent text-xs font-black focus:outline-none text-zinc-200 text-center cursor-pointer border-none"
                               >
-                                <option value="reps" className="bg-zinc-950">reps</option>
-                                <option value="kgs" className="bg-zinc-950">kgs</option>
-                                <option value="lbs" className="bg-zinc-950">lbs</option>
-                                <option value="kms" className="bg-zinc-950">kms</option>
-                                <option value="sec" className="bg-zinc-950">sec</option>
-                                <option value="min" className="bg-zinc-950">min</option>
+                                {(Object.keys(UNIT_TRAITS) as Array<keyof typeof UNIT_TRAITS>).map(u => (
+                                  <option key={u} value={u} className="bg-zinc-950">{UNIT_TRAITS[u].shortLabel}</option>
+                                ))}
                               </select>
                             </div>
                           </div>
@@ -1234,19 +1426,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   </div>
                 </div>
 
-                {/* Reps Input */}
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest pl-0.5">Reps completed</label>
-                  <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2.5">
-                    <input
-                      type="number"
-                      value={prReps || ''}
-                      onChange={(e) => setPrReps(parseInt(e.target.value) || 1)}
-                      className="w-full bg-transparent font-bold text-xs text-zinc-100 font-mono focus:outline-none"
-                      placeholder="e.g. 8"
-                    />
+                {/* Reps Input — optional, and only relevant for weight or
+                    bodyweight reps. Distance / duration PRs skip this. */}
+                {getUnitTraits(prUnit).metric !== 'cardio-distance' && getUnitTraits(prUnit).metric !== 'cardio-duration' && (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest pl-0.5 flex items-center justify-between">
+                      <span>Reps completed</span>
+                      <span className="text-zinc-600 normal-case tracking-normal font-semibold">Optional</span>
+                    </label>
+                    <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2.5">
+                      <input
+                        type="number"
+                        min={0}
+                        value={prReps || ''}
+                        onChange={(e) => setPrReps(parseInt(e.target.value) || 0)}
+                        className="w-full bg-transparent font-bold text-xs text-zinc-100 font-mono focus:outline-none"
+                        placeholder="leave blank for value-only"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Measurement Unit */}
                 <div className="flex flex-col gap-1.5">

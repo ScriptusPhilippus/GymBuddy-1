@@ -7,19 +7,29 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Routine, Exercise, WorkoutSession, LoggedExercise, LoggedSet, WorkoutSettings } from '../types';
 import { PoseIcon } from './PoseIcon';
 import { Play, Pause, Trash2, Check, Timer, ArrowLeft, PlusCircle, AlertCircle, Plus } from 'lucide-react';
+import { getUnitTraits } from '../data/unit-traits';
 
 export type ExerciseMetricType = 'weight-reps' | 'bodyweight-reps' | 'cardio-distance';
 
-export function getExerciseMetricType(exercise: Exercise): ExerciseMetricType {
+/**
+ * Pick the input layout for a logged set. If the planned exercise has a
+ * non-default `unit`, prefer that — a planned `kms` always means cardio,
+ * a planned `kgs`/`lbs` always means weight+reps, regardless of the
+ * exercise's category. Falls back to the exercise's category/equipment
+ * heuristic for legacy plans that only used the default `reps` unit.
+ */
+export function getExerciseMetricType(exercise: Exercise, plannedUnit?: string): ExerciseMetricType {
+  if (plannedUnit && plannedUnit !== 'reps') {
+    const traits = getUnitTraits(plannedUnit);
+    if (traits.metric === 'cardio-distance' || traits.metric === 'cardio-duration') {
+      return 'cardio-distance';
+    }
+    if (traits.metric === 'weight-reps') return 'weight-reps';
+  }
   const equip = exercise.equipment?.toLowerCase() || '';
   const cat = exercise.category?.toLowerCase() || '';
-  
-  if (equip === 'cardio' || cat === 'cardio') {
-    return 'cardio-distance';
-  }
-  if (equip === 'bodyweight') {
-    return 'bodyweight-reps';
-  }
+  if (equip === 'cardio' || cat === 'cardio') return 'cardio-distance';
+  if (equip === 'bodyweight') return 'bodyweight-reps';
   return 'weight-reps';
 }
 
@@ -84,21 +94,33 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
     // Otherwise, generate standard clean starting tracker sets
     const initialLogged: LoggedExercise[] = routine.exercises.map(planned => {
       const exerciseEx = exercisesList.find(e => e.id === planned.exerciseId);
-      const metricType = exerciseEx ? getExerciseMetricType(exerciseEx) : 'weight-reps';
+      const traits = getUnitTraits(planned.unit);
+      const metricType = exerciseEx ? getExerciseMetricType(exerciseEx, planned.unit) : 'weight-reps';
 
-      const setCount = planned.sets;
+      // Cardio-without-sets exercises always render exactly one tracked set.
+      const setCount = traits.supportsSets ? planned.sets : 1;
       const sets: LoggedSet[] = [];
       const defaultWeight = settings.weightUnit === 'lbs' ? 100 : 50;
-      const plannedReps = parseInt(planned.reps.split('-')[0]) || 10;
-      
+      const plannedNumeric = parseFloat(planned.reps.split('-')[0]);
+      const plannedReps = Number.isFinite(plannedNumeric) ? plannedNumeric : 10;
+
+      // Seed distance / duration straight from the planned value when
+      // the planned unit IS distance / duration. Otherwise pick sane defaults.
+      const seedDistance = traits.metric === 'cardio-distance'
+        ? plannedReps
+        : 5.0;
+      const seedDuration = traits.metric === 'cardio-duration'
+        ? plannedReps
+        : (traits.metric === 'cardio-distance' ? 15 : 15);
+
       for (let i = 0; i < setCount; i++) {
         sets.push({
           id: `${planned.id || planned.exerciseId}-set-${i}-${Math.random()}`,
           weight: defaultWeight,
-          reps: plannedReps,
+          reps: Math.round(plannedReps),
           completed: false,
-          distance: metricType === 'cardio-distance' ? 5.0 : undefined,
-          durationMinutes: metricType === 'cardio-distance' ? 15 : undefined
+          distance: metricType === 'cardio-distance' ? seedDistance : undefined,
+          durationMinutes: metricType === 'cardio-distance' ? seedDuration : undefined
         });
       }
 
@@ -184,7 +206,38 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
     }
   }, [elapsedSeconds, routine, loggedExercises, notes, settings.maxWorkoutDuration, onFinish]);
 
-  // Rest Timer countdown logic
+  // Plays a short two-tone beep using the WebAudio API. No external file,
+  // no dependency. Wrapped in a try/catch because some mobile browsers
+  // block AudioContext until a user gesture — we attempt anyway, swallow.
+  const playRestCue = () => {
+    try {
+      const Ctx = (window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext
+        ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const now = ctx.currentTime;
+      const tone = (freq: number, start: number, dur: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, now + start);
+        gain.gain.exponentialRampToValueAtTime(0.18, now + start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now + start);
+        osc.stop(now + start + dur + 0.05);
+      };
+      tone(880, 0, 0.18);
+      tone(1320, 0.22, 0.22);
+      setTimeout(() => ctx.close().catch(() => undefined), 600);
+    } catch {
+      /* audio blocked / unsupported — silently ignore */
+    }
+  };
+
+  // Rest Timer countdown logic. When it expires, fire the configured
+  // sound + vibration cues if the user has them enabled in Settings.
   useEffect(() => {
     if (restDuration > 0) {
       restIntervalRef.current = setInterval(() => {
@@ -192,6 +245,10 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
           if (prev <= 1) {
             clearInterval(restIntervalRef.current!);
             setShowRestTimer(false);
+            if (settings.soundEnabled) playRestCue();
+            if (settings.vibrationEnabled && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+              try { navigator.vibrate([120, 80, 120]); } catch { /* ignore */ }
+            }
             return 0;
           }
           return prev - 1;
@@ -201,7 +258,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
     return () => {
       if (restIntervalRef.current) clearInterval(restIntervalRef.current);
     };
-  }, [restDuration]);
+  }, [restDuration, settings.soundEnabled, settings.vibrationEnabled]);
 
   // Format stopwatch digits
   const formatTime = (totalSecs: number) => {
@@ -391,32 +448,28 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
   };
 
   return (
-    <div id="active-session-container" className="flex flex-col min-h-screen bg-zinc-950 text-zinc-100 pb-24 relative">
+    <div id="active-session-container" className="flex flex-col min-h-screen bg-zinc-950 text-zinc-100 pb-36 relative">
       
-      {/* Stopwatch header sticky bar */}
-      <div className="sticky top-0 bg-zinc-950/95 backdrop-blur border-b border-zinc-900 z-30 px-5 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
+      {/* Sticky top bar — tight on mobile.
+          Layout: [Back] [Routine name + sublabel] ........... [Discard] [FINISH]
+          The session timer + pause/play moved to a floating pill at the
+          bottom of the screen so the FINISH action always has room here. */}
+      <div className="sticky top-0 bg-zinc-950/95 backdrop-blur border-b border-zinc-900 z-30 px-4 py-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <button
             onClick={onCancel}
-            className="p-2 -ml-2 rounded-full hover:bg-zinc-900 text-zinc-400 hover:text-white transition-all duration-200"
+            className="p-2 -ml-1 shrink-0 rounded-full hover:bg-zinc-900 text-zinc-400 hover:text-white transition-all duration-200"
             title="Back to dashboard"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div>
-            <h1 className="text-sm font-black text-zinc-200 leading-none truncate max-w-[150px]">{routine.name || 'Active Session'}</h1>
+          <div className="min-w-0">
+            <h1 className="text-sm font-black text-zinc-100 leading-tight truncate">{routine.name || 'Active Session'}</h1>
             <span className="text-[9px] font-extrabold text-violet-500 uppercase tracking-wider">Logging Workout</span>
           </div>
         </div>
 
-        {/* Dynamic Timer display with active neon pulse */}
-        <div className="flex items-center gap-1.5 bg-gradient-to-r from-violet-950/20 to-purple-950/20 border border-violet-900/40 px-3 py-1 rounded-full shadow-inner shadow-black">
-          <Timer className="w-3.5 h-3.5 text-violet-400 animate-pulse" />
-          <span className="font-mono text-xs font-bold text-white tracking-widest leading-none">{formatTime(elapsedSeconds)}</span>
-        </div>
-
-        {/* Control triggers */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={() => setShowExitConfirm(true)}
             className="px-2 py-2 rounded-xl text-[10px] font-bold text-zinc-500 hover:text-red-400 hover:bg-red-950/10 transition-all duration-150"
@@ -424,18 +477,8 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
             Discard
           </button>
           <button
-            onClick={() => setIsPlaying(!isPlaying)}
-            className={`p-2 rounded-xl border transition-all duration-150 ${
-              isPlaying
-                ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-800'
-                : 'bg-violet-900/15 border-violet-800 text-violet-300 hover:bg-violet-900/30'
-            }`}
-          >
-            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-          </button>
-          <button
             onClick={handleCompleteSession}
-            className="px-4 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-black tracking-wide shadow-md shadow-emerald-950/30 active:scale-95 transition-all"
+            className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-[11px] font-black tracking-wide shadow-md shadow-emerald-950/30 active:scale-95 transition-all"
           >
             FINISH
           </button>
@@ -453,15 +496,15 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
           </div>
         </div>
 
-        {/* Session overall notes */}
+        {/* Session overall notes — multi-line for real comments. */}
         <div className="bg-zinc-900/30 border border-zinc-900 rounded-3xl p-4 space-y-2">
           <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500 block">Session Workout Notes</label>
-          <input
-            type="text"
+          <textarea
+            rows={2}
             placeholder="Feeling energetic? Key hydration remarks..."
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-violet-600 focus:ring-1 focus:ring-violet-600 transition"
+            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-violet-600 focus:ring-1 focus:ring-violet-600 transition resize-none"
           />
         </div>
 
@@ -754,21 +797,46 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
         </button>
       </div>
 
-      {/* Floating Active Rest Timer Countdown Overlay */}
-      {showRestTimer && restDuration > 0 && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-zinc-950/95 border border-zinc-800 text-white px-5 py-3 rounded-2xl flex items-center gap-4 shadow-xl shadow-black z-40 backdrop-blur-md animate-fade-in">
-          <div className="flex flex-col">
-            <span className="text-[8px] font-black uppercase text-zinc-500 tracking-widest leading-none">Rest Countdown</span>
-            <span className="font-mono text-sm font-black text-violet-400 mt-0.5">{restDuration}s <span className="text-zinc-500 font-bold lowercase text-[10px]">left</span></span>
+      {/* Floating bottom timer stack.
+          Bottom pill: session stopwatch + pause/play (always visible).
+          Above it: rest countdown (only when active). Both centered, both
+          live on top of the page so they're reachable on any scroll. */}
+      <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-2 pointer-events-none">
+        {showRestTimer && restDuration > 0 && (
+          <div className="bg-zinc-950/95 border border-violet-700/40 text-white px-4 py-2 rounded-2xl flex items-center gap-3 shadow-xl shadow-black backdrop-blur-md animate-fade-in pointer-events-auto">
+            <div className="flex flex-col leading-tight">
+              <span className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Rest Countdown</span>
+              <span className="font-mono text-sm font-black text-violet-400">
+                {restDuration}s <span className="text-zinc-500 font-bold lowercase text-[10px]">left</span>
+              </span>
+            </div>
+            <button
+              onClick={() => { setRestDuration(0); setShowRestTimer(false); }}
+              className="text-[10px] uppercase tracking-wider text-zinc-500 hover:text-white font-extrabold"
+            >
+              Skip
+            </button>
           </div>
-          <button 
-            onClick={() => { setRestDuration(0); setShowRestTimer(false); }}
-            className="text-xs text-zinc-500 hover:text-white font-extrabold"
+        )}
+
+        <div className="bg-zinc-950/95 border border-zinc-800 text-white px-3 py-2 rounded-full flex items-center gap-2 shadow-xl shadow-black backdrop-blur-md pointer-events-auto select-none">
+          <button
+            onClick={() => setIsPlaying(!isPlaying)}
+            className={`p-1.5 rounded-full transition-all duration-150 ${
+              isPlaying
+                ? 'bg-zinc-900 text-zinc-300 hover:text-white hover:bg-zinc-800'
+                : 'bg-violet-600/30 text-violet-200 hover:bg-violet-600/50'
+            }`}
+            title={isPlaying ? 'Pause session' : 'Resume session'}
           >
-            Skip
+            {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
           </button>
+          <Timer className={`w-3.5 h-3.5 ${isPlaying ? 'text-violet-400 animate-pulse' : 'text-zinc-500'}`} />
+          <span className="font-mono text-sm font-black text-white tracking-widest leading-none pr-2">
+            {formatTime(elapsedSeconds)}
+          </span>
         </div>
-      )}
+      </div>
 
       {/* MODAL: ADD UNPLANNED EXERCISE ON FLY */}
       {showAddExModal && (

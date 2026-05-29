@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { Exercise, MuscleGroup } from '../types';
 import { AnatomyModel } from './AnatomyModel';
+import { PoseIcon } from './PoseIcon';
 import { Dumbbell, Target, Shield, Flame, Lightbulb, ChevronLeft, Edit2, X, Plus, Trash2, Check, Save } from 'lucide-react';
 
 interface ExerciseDetailProps {
@@ -171,10 +172,15 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
             </div>
           </div>
 
-          <div className="p-5 bg-gradient-to-b from-zinc-950/10 to-zinc-950 space-y-1">
-            <span className="text-[9px] font-extrabold text-violet-400 uppercase tracking-widest block pl-0.5">Active Visualizer</span>
-            <h2 className="text-xl font-black text-white tracking-tight leading-tight">{exercise.name}</h2>
-            <p className="text-xs text-zinc-400 font-medium">{exercise.whatItTrains}</p>
+          <div className="p-5 bg-gradient-to-b from-zinc-950/10 to-zinc-950 flex items-center gap-4">
+            {/* Pose icon — same minimalistic mark used in the routine list,
+                so the user has a visual anchor when arriving from a list. */}
+            <PoseIcon name={exercise.poseIcon} size={64} className="shrink-0" />
+            <div className="space-y-1 min-w-0">
+              <span className="text-[9px] font-extrabold text-violet-400 uppercase tracking-widest block pl-0.5">Active Visualizer</span>
+              <h2 className="text-xl font-black text-white tracking-tight leading-tight truncate">{exercise.name}</h2>
+              <p className="text-xs text-zinc-400 font-medium line-clamp-2">{exercise.whatItTrains}</p>
+            </div>
           </div>
         </div>
 

@@ -420,7 +420,7 @@ export const EXERCISES: Exercise[] = [
   {
     id: 'hyperextension',
     name: '45° Back Hyperextension',
-    category: 'legs', // posterior chain
+    category: 'back',
     equipment: 'bodyweight',
     primaryMuscles: ['lower-back', 'glutes'],
     secondaryMuscles: ['hamstrings'],
@@ -616,5 +616,232 @@ export const EXERCISES: Exercise[] = [
     coachingTip: 'Maintain a tall, slightly forward-tilted posture from ankles, not waist.',
     defaultSets: 1,
     defaultReps: '20-30 min'
+  },
+  {
+    id: 'walk',
+    name: 'Brisk Walking',
+    category: 'cardio',
+    equipment: 'cardio',
+    primaryMuscles: ['quads', 'calves'],
+    secondaryMuscles: ['glutes', 'hamstrings'],
+    poseIcon: 'walk',
+    whatItTrains: 'Low-impact aerobic conditioning, joint-friendly base cardio.',
+    setup: [
+      'Comfortable shoes, neutral posture.',
+      'Hands relaxed, slight bend at the elbows.'
+    ],
+    howToPerform: [
+      'Walk at a pace that elevates breathing but still allows conversation.',
+      'Strike with heel and roll through to toe.',
+      'Drive lightly off the back foot to lengthen stride.'
+    ],
+    coachingTip: 'Keep eyes forward and shoulders back to maintain easy breathing rhythm.',
+    defaultSets: 1,
+    defaultReps: '20-45 min'
+  },
+  {
+    id: 'treadmill',
+    name: 'Treadmill Run',
+    category: 'cardio',
+    equipment: 'cardio',
+    primaryMuscles: ['quads', 'hamstrings', 'calves'],
+    secondaryMuscles: ['glutes'],
+    poseIcon: 'treadmill',
+    whatItTrains: 'Indoor steady-state or interval cardio with controlled pace and incline.',
+    setup: [
+      'Set the belt to walking pace, step on, then dial up to running pace.',
+      'Use light incline (1-2%) to mimic outdoor effort.',
+      'Hands off the rails once at speed.'
+    ],
+    howToPerform: [
+      'Land mid-foot under your hips, not in front.',
+      'Lock cadence at 170-180 steps per minute for efficiency.',
+      'Breathe in for 2 strides, out for 2 strides.'
+    ],
+    coachingTip: 'If you have to hold the rails, the speed is too high — drop it down.',
+    defaultSets: 1,
+    defaultReps: '20-30 min'
+  },
+  {
+    id: 'elliptical',
+    name: 'Elliptical Trainer',
+    category: 'cardio',
+    equipment: 'cardio',
+    primaryMuscles: ['quads', 'hamstrings'],
+    secondaryMuscles: ['glutes', 'calves'],
+    poseIcon: 'elliptical',
+    whatItTrains: 'Zero-impact full-body cardio engaging both upper and lower body.',
+    setup: [
+      'Step on pedals, grip moving handles.',
+      'Pick a resistance level that lets you sustain a steady pace.'
+    ],
+    howToPerform: [
+      'Push and pull the handles in sync with each leg drive.',
+      'Press down through the heel on each stride.',
+      'Keep torso upright, core gently braced.'
+    ],
+    coachingTip: 'Drive through the legs first; let the arms follow rather than yanking the handles.',
+    defaultSets: 1,
+    defaultReps: '20-30 min'
+  },
+  {
+    id: 'rowing-machine',
+    name: 'Rowing Machine',
+    category: 'cardio',
+    equipment: 'cardio',
+    primaryMuscles: ['lats', 'quads'],
+    secondaryMuscles: ['glutes', 'hamstrings', 'lower-back', 'biceps'],
+    poseIcon: 'rowing-machine',
+    whatItTrains: 'Full-body posterior-chain cardio: legs drive, back hinges, arms finish.',
+    setup: [
+      'Strap feet in, grip the handle overhand, arms straight.',
+      'Slide forward, shins vertical, chest up.'
+    ],
+    howToPerform: [
+      'Drive with the legs first until they are nearly straight.',
+      'Hinge the torso back about 10°.',
+      'Pull the handle to just below the sternum.',
+      'Return in reverse: arms extend, torso forward, legs bend.'
+    ],
+    coachingTip: 'Power split: roughly 60% legs, 30% back, 10% arms — never lead with the arms.',
+    defaultSets: 1,
+    defaultReps: '15-25 min'
+  },
+  {
+    id: 'jump-rope',
+    name: 'Jump Rope',
+    category: 'cardio',
+    equipment: 'cardio',
+    primaryMuscles: ['calves'],
+    secondaryMuscles: ['quads', 'forearms'],
+    poseIcon: 'jump-rope',
+    whatItTrains: 'High-intensity conditioning, calf endurance, ankle stiffness, and coordination.',
+    setup: [
+      'Rope length: handles at armpit height when standing on the middle of it.',
+      'Elbows tucked in by the ribs, wrists do the work.'
+    ],
+    howToPerform: [
+      'Spin the rope with the wrists, not the shoulders.',
+      'Land softly on the balls of the feet, knees just barely bent.',
+      'Stay tall — minimal hop height, just enough to clear the rope.'
+    ],
+    coachingTip: 'If you are hopping high, your shoulders are doing the spin — relax them and let the wrists drive.',
+    defaultSets: 3,
+    defaultReps: '60-90 sec'
+  },
+  {
+    id: 'burpee',
+    name: 'Burpee',
+    category: 'cardio',
+    equipment: 'bodyweight',
+    primaryMuscles: ['chest', 'quads'],
+    secondaryMuscles: ['front-delts', 'abs', 'glutes', 'calves'],
+    poseIcon: 'burpee',
+    whatItTrains: 'Explosive full-body conditioning combining a squat, plank, push-up, and jump.',
+    setup: [
+      'Stand tall with feet shoulder-width.',
+      'Clear about a body-length of floor space in front of you.'
+    ],
+    howToPerform: [
+      'Squat down and place hands on the floor.',
+      'Jump feet back to a plank.',
+      'Perform a push-up (optional but encouraged).',
+      'Jump feet forward under the hips.',
+      'Explode up into a vertical jump with arms overhead.'
+    ],
+    coachingTip: 'Keep the plank position rigid — no sagging hips when you snap back.',
+    defaultSets: 4,
+    defaultReps: '8-12'
+  },
+  {
+    id: 'box-jump',
+    name: 'Box Jump',
+    category: 'legs',
+    equipment: 'bodyweight',
+    primaryMuscles: ['quads', 'glutes'],
+    secondaryMuscles: ['hamstrings', 'calves'],
+    poseIcon: 'box-jump',
+    whatItTrains: 'Lower-body power, rate of force development, and landing mechanics.',
+    setup: [
+      'Place a sturdy box or platform at a height you can land softly on (start low).',
+      'Stand a half-step back from the box, feet shoulder-width.'
+    ],
+    howToPerform: [
+      'Dip down into a quarter squat with arms swinging back.',
+      'Swing the arms forward and explode upward.',
+      'Land on the box softly with both feet, knees tracking over toes.',
+      'Stand fully tall on top, then step (do not jump) back down.'
+    ],
+    coachingTip: 'Step down, never jump down — landing impulse from a high box is brutal on the knees.',
+    defaultSets: 4,
+    defaultReps: '5-8'
+  },
+  {
+    id: 'kettlebell-swing',
+    name: 'Kettlebell Swing',
+    category: 'legs',
+    equipment: 'kettlebell',
+    primaryMuscles: ['glutes', 'hamstrings'],
+    secondaryMuscles: ['lower-back', 'lats', 'forearms', 'abs'],
+    poseIcon: 'kettlebell-swing',
+    whatItTrains: 'Hip-hinge power, posterior chain explosiveness, and grip endurance.',
+    setup: [
+      'Kettlebell on the floor about a foot in front of your toes.',
+      'Hinge to grip the handle with both hands, neutral spine.'
+    ],
+    howToPerform: [
+      'Hike the bell back between your legs like a football snap.',
+      'Drive hips forward explosively to swing the bell to chest height.',
+      'Let the bell fall on its own arc, hinge to receive it.',
+      'Repeat without rounding the lower back.'
+    ],
+    coachingTip: 'The arms are ropes — power comes from the hip snap, not from lifting with the shoulders.',
+    defaultSets: 4,
+    defaultReps: '12-15'
+  },
+  {
+    id: 'carry',
+    name: 'Farmer\'s Carry',
+    category: 'core',
+    equipment: 'dumbbell',
+    primaryMuscles: ['forearms', 'traps'],
+    secondaryMuscles: ['abs', 'obliques', 'glutes', 'quads'],
+    poseIcon: 'carry',
+    whatItTrains: 'Total-body stability, grip strength, trap density, and anti-lateral-flexion core.',
+    setup: [
+      'Pick a heavy dumbbell or kettlebell for each hand.',
+      'Stand tall, shoulders packed down and back, arms straight.'
+    ],
+    howToPerform: [
+      'Walk in a straight line with smooth, controlled steps.',
+      'Keep ribs stacked over hips — do not lean to either side.',
+      'Breathe in a 3-step-in, 3-step-out rhythm.',
+      'Set the weights down with control at the end.'
+    ],
+    coachingTip: 'If your shoulders shrug toward your ears or your back arches, the load is too heavy — drop down.',
+    defaultSets: 3,
+    defaultReps: '30-40 sec'
+  },
+  {
+    id: 'stretch',
+    name: 'Full-Body Stretch',
+    category: 'core',
+    equipment: 'bodyweight',
+    primaryMuscles: ['lower-back', 'hamstrings'],
+    secondaryMuscles: ['glutes', 'calves', 'lats'],
+    poseIcon: 'stretch',
+    whatItTrains: 'Mobility, recovery, and injury prevention — a low-intensity cool-down session.',
+    setup: [
+      'Find a clear floor space, ideally on a yoga mat.',
+      'Breathe slowly and deeply throughout.'
+    ],
+    howToPerform: [
+      'Cycle through static stretches: hamstrings, hip flexors, quads, glutes, lats, chest.',
+      'Hold each position 30 seconds; no bouncing.',
+      'Sink slightly deeper on each exhale.'
+    ],
+    coachingTip: 'Mild tension is fine; sharp pain is a stop signal — never stretch into pain.',
+    defaultSets: 1,
+    defaultReps: '8-12 min'
   }
 ];

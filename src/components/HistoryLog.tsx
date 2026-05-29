@@ -213,7 +213,7 @@ export const HistoryLog: React.FC<HistoryLogProps> = ({
                       </div>
                       <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800">
                         <BarChart2 className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>{volume.toLocaleString()} tonnage</span>
+                        <span>Vol {volume.toLocaleString()} {weightUnit}·rep</span>
                       </div>
                     </div>
 

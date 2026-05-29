@@ -60,13 +60,31 @@ export default function App() {
 
   // 1. Load starting database from localStorage or seed initial defaults
   useEffect(() => {
-    // a. Exercises Custom seeds
+    // a. Exercises Custom seeds.
+    //    Bumped to v2 after the kettlebell-swing / hyperextension category
+    //    fix — existing installs need their built-in entries refreshed.
+    //    Any custom-* exercises the user created are preserved.
+    const EXERCISES_SEED_VERSION = 2;
+    const storedVersion = parseInt(localStorage.getItem('gym_exercises_version') || '0', 10);
     const storedExercises = localStorage.getItem('gym_exercises');
-    if (storedExercises) {
+
+    if (storedExercises && storedVersion >= EXERCISES_SEED_VERSION) {
       setExercisesList(JSON.parse(storedExercises));
     } else {
-      setExercisesList(EXERCISES);
-      localStorage.setItem('gym_exercises', JSON.stringify(EXERCISES));
+      // Preserve user-created custom exercises while re-seeding the built-ins.
+      let preservedCustoms: Exercise[] = [];
+      if (storedExercises) {
+        try {
+          const prev = JSON.parse(storedExercises) as Exercise[];
+          preservedCustoms = prev.filter(e => typeof e.id === 'string' && e.id.startsWith('custom-'));
+        } catch {
+          /* fall through to fresh seed */
+        }
+      }
+      const merged: Exercise[] = [...EXERCISES, ...preservedCustoms];
+      setExercisesList(merged);
+      localStorage.setItem('gym_exercises', JSON.stringify(merged));
+      localStorage.setItem('gym_exercises_version', String(EXERCISES_SEED_VERSION));
     }
 
     // b. Workout Settings Setup
@@ -598,14 +616,16 @@ export default function App() {
                     handleStartWorkout(targetRoutine);
                   }
                 }}
-                className="w-full py-4 bg-gradient-to-r from-violet-600 via-indigo-600 to-violet-700 hover:from-violet-500 hover:to-indigo-500 text-white rounded-2xl text-xs font-black tracking-widest shadow-xl flex flex-col items-center justify-center gap-0.5 active:scale-95 duration-200 cursor-pointer uppercase"
+                className="w-full py-4 bg-gradient-to-r from-violet-600 via-indigo-600 to-violet-700 hover:from-violet-500 hover:to-indigo-500 text-white rounded-2xl text-xs font-black tracking-widest shadow-xl flex items-center justify-center gap-3 active:scale-95 duration-200 cursor-pointer uppercase"
               >
-                <span className="flex items-center justify-center gap-2 leading-tight">
-                  <Play className="w-4 h-4 fill-current stroke-0 shrink-0" />
+                {/* Play icon vertically centered across BOTH lines of the
+                    text column on its right. */}
+                <Play className="w-5 h-5 fill-current stroke-0 shrink-0" />
+                <span className="flex flex-col items-center leading-tight gap-0.5">
                   <span>START WORKOUT</span>
-                </span>
-                <span className="max-w-[260px] text-[9px] font-bold tracking-normal normal-case text-violet-100/80 truncate">
-                  {(routines.find(r => r.id === selectedRoutineId) || activeScheduled || routines[0])?.name}
+                  <span className="max-w-[240px] text-[9px] font-bold tracking-normal normal-case text-violet-100/80 truncate">
+                    {(routines.find(r => r.id === selectedRoutineId) || activeScheduled || routines[0])?.name}
+                  </span>
                 </span>
               </button>
             </div>
