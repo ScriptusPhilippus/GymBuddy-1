@@ -25,3 +25,14 @@
   for = "/sw.js"
   [headers.values]
     Cache-Control = "no-cache"
+
+# Let installed PWAs discover manifest/icon updates quickly.
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/icons/*"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, must-revalidate"

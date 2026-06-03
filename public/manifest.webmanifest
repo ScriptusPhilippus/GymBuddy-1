@@ -1,6 +1,8 @@
 {
   "name": "GymBuddy",
   "short_name": "GymBuddy",
+  "id": "/",
+  "lang": "en",
   "description": "A dark, mobile-first workout tracker for routines, active sessions, exercise references, and progress.",
   "start_url": "/",
   "scope": "/",
@@ -10,16 +12,22 @@
   "background_color": "#000000",
   "icons": [
     {
-      "src": "/icons/icon-192.png",
+      "src": "/icons/icon-192.png?v=6",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-512.png",
+      "src": "/icons/icon-512.png?v=6",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-512.png?v=6",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

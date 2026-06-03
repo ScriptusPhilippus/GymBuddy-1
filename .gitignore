@@ -11,3 +11,4 @@ android/**/build/
 *.log
 .env
 .env.*
+android
