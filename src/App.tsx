@@ -129,13 +129,13 @@ function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-200 focus:outline-none ${
-        checked ? 'bg-[rgb(var(--accent-600))] border-[rgb(var(--accent-500))]' : 'bg-zinc-800 border-zinc-700'
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--accent-500))] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 ${
+        checked ? 'bg-[rgb(var(--accent-600))]' : 'bg-zinc-700'
       }`}
     >
       <span
-        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${
-          checked ? 'translate-x-5' : 'translate-x-1'
+        className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out ${
+          checked ? 'translate-x-5' : 'translate-x-0'
         }`}
       />
     </button>
