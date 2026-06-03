@@ -8,6 +8,7 @@ export type MuscleGroup =
   | 'lats'
   | 'traps'
   | 'front-delts'
+  | 'side-delts'
   | 'rear-delts'
   | 'biceps'
   | 'triceps'
@@ -51,7 +52,8 @@ export interface PlannedExercise {
   exerciseId: string; // Reference to Exercise
   sets: number;
   reps: string; // e.g. "8-12", "6-10"
-  unit?: string; // Optional unit: reps, kgs, kms, etc.
+  unit?: string; // Optional unit: reps, kgs, kms, miles, etc.
+  targetWeight?: number; // Planned working load for weight-based units (kg/lbs)
 }
 
 export interface Routine {
@@ -66,7 +68,7 @@ export interface LoggedSet {
   weight: number; // in kg or lbs
   reps: number;
   completed: boolean;
-  distance?: number; // distance in kms or miles
+  distance?: number; // canonical distance in kilometers
   durationMinutes?: number; // duration in minutes
 }
 
@@ -86,10 +88,34 @@ export interface WorkoutSession {
   notes?: string;
 }
 
+export type ThemeHue = 'violet' | 'emerald' | 'rose' | 'sky' | 'amber';
+export type LanguageCode = 'en' | 'el';
+
 export interface WorkoutSettings {
   weightUnit: 'kg' | 'lbs';
+  distanceUnit?: 'km' | 'mi';
   defaultRestDuration: number; // in seconds, e.g. 90
   soundEnabled: boolean;
   vibrationEnabled: boolean;
+  autoStartRest?: boolean; // start rest timer automatically after marking sets complete
   maxWorkoutDuration?: number; // in minutes, e.g. 120
+  weightIncrement?: number; // optional override for weight steppers
+  accentHue?: ThemeHue;
+  language?: LanguageCode;
+  showExerciseImage?: boolean; // photographic exercise "visualizer" backdrop (default off)
+  showHelpText?: boolean; // constant explanatory subtitles under cards (default on)
+  // NOTE (future): a dedicated "Minimalist mode" will collapse help text,
+  // descriptions and other learn-the-ropes affordances for seasoned users.
+}
+
+export interface ManualPRRecord {
+  value: number;
+  reps?: number;
+  unit: string;
+}
+
+export interface BodyWeightEntry {
+  id: string;
+  date: number; // timestamp (midnight of the logged day)
+  weight: number; // stored in the user's current weightUnit
 }

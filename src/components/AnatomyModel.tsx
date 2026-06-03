@@ -9,6 +9,7 @@ import { MuscleGroup } from '../types';
 interface AnatomyModelProps {
   primaryMuscles: MuscleGroup[];
   secondaryMuscles: MuscleGroup[];
+  intensities?: Partial<Record<MuscleGroup, number>>;
   selectedView?: 'front' | 'back';
   interactive?: boolean;
   onMuscleClick?: (muscle: MuscleGroup) => void;
@@ -16,9 +17,30 @@ interface AnatomyModelProps {
   showLabels?: boolean;
 }
 
+// Anatomical Load uses its own CONTINUOUS least→most ramp — a smooth
+// interpolation from blue (#3b82f6) to fuchsia (#ec4899), passing through
+// lively violet mid-tones. This is deliberately NOT the category palette and
+// NOT the blue/violet primary-muscle role used by the exercise sheet.
+const LOAD_LOW: [number, number, number] = [59, 130, 246];   // #3b82f6 blue
+const LOAD_HIGH: [number, number, number] = [236, 72, 153];  // #ec4899 fuchsia
+export function loadColorRGB(t: number): [number, number, number] {
+  const c = Math.max(0, Math.min(1, t));
+  return [
+    Math.round(LOAD_LOW[0] + (LOAD_HIGH[0] - LOAD_LOW[0]) * c),
+    Math.round(LOAD_LOW[1] + (LOAD_HIGH[1] - LOAD_LOW[1]) * c),
+    Math.round(LOAD_LOW[2] + (LOAD_HIGH[2] - LOAD_LOW[2]) * c)
+  ];
+}
+export function heatColor(intensity: number): string {
+  if (intensity <= 0) return '#27272a';
+  const [r, g, b] = loadColorRGB(intensity);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 export const AnatomyModel: React.FC<AnatomyModelProps> = ({
   primaryMuscles,
   secondaryMuscles,
+  intensities,
   selectedView = 'front',
   interactive = false,
   onMuscleClick,
@@ -27,6 +49,29 @@ export const AnatomyModel: React.FC<AnatomyModelProps> = ({
 }) => {
   // Return coloring style depending on status in primaries or secondaries
   const getMuscleColors = (muscle: MuscleGroup) => {
+    if (intensities) {
+      const t = Math.max(0, Math.min(1, intensities[muscle] || 0));
+      if (t <= 0) {
+        return {
+          fill: '#27272a',
+          stroke: '#3f3f46',
+          strokeWidth: 1,
+          filter: undefined,
+          className: `transition-all duration-300 ${interactive ? 'cursor-pointer hover:fill-zinc-700/50' : ''}`
+        };
+      }
+      const [r, g, b] = loadColorRGB(t);
+      // Fill opacity and glow both scale with intensity so the relative
+      // least→most reads continuously, not in steps.
+      return {
+        fill: `rgba(${r}, ${g}, ${b}, ${(0.5 + 0.45 * t).toFixed(3)})`,
+        stroke: `rgb(${Math.min(255, r + 25)}, ${Math.min(255, g + 25)}, ${Math.min(255, b + 25)})`,
+        strokeWidth: 1.6,
+        filter: `drop-shadow(0px 0px ${(3 + 7 * t).toFixed(1)}px rgba(${r}, ${g}, ${b}, ${(0.35 + 0.45 * t).toFixed(3)}))`,
+        className: `transition-all duration-300 ${interactive ? 'cursor-pointer' : ''}`
+      };
+    }
+
     const isPrimary = primaryMuscles.includes(muscle);
     const isSecondary = secondaryMuscles.includes(muscle);
 
@@ -65,6 +110,8 @@ export const AnatomyModel: React.FC<AnatomyModelProps> = ({
     const chestProps = getMuscleColors('chest');
     const frontDeltsL = getMuscleColors('front-delts');
     const frontDeltsR = getMuscleColors('front-delts');
+    const sideDeltsL = getMuscleColors('side-delts');
+    const sideDeltsR = getMuscleColors('side-delts');
     const bicepsL = getMuscleColors('biceps');
     const bicepsR = getMuscleColors('biceps');
     const forearmsL = getMuscleColors('forearms');
@@ -130,6 +177,22 @@ export const AnatomyModel: React.FC<AnatomyModelProps> = ({
           d="M 102 50 C 106 52, 109 58, 111 67 C 112 71, 109 75, 106 75 C 103 72, 102 58, 102 50 Z"
           {...frontDeltsR}
           onClick={() => handleMuscleClick('front-delts')}
+          style={{ cursor: interactive ? 'pointer' : 'default' }}
+        />
+
+        {/* SIDE DELTOIDS (LATERAL SHOULDER CAPS) */}
+        <path
+          id="muscle-side-delts-l"
+          d="M 51 61 C 47 65, 45 73, 47 82 C 51 82, 55 75, 56 67 C 55 64, 53 62, 51 61 Z"
+          {...sideDeltsL}
+          onClick={() => handleMuscleClick('side-delts')}
+          style={{ cursor: interactive ? 'pointer' : 'default' }}
+        />
+        <path
+          id="muscle-side-delts-r"
+          d="M 109 61 C 113 65, 115 73, 113 82 C 109 82, 105 75, 104 67 C 105 64, 107 62, 109 61 Z"
+          {...sideDeltsR}
+          onClick={() => handleMuscleClick('side-delts')}
           style={{ cursor: interactive ? 'pointer' : 'default' }}
         />
 

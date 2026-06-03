@@ -4,18 +4,23 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Routine, Exercise, PlannedExercise, WorkoutSettings, WorkoutSession, MuscleGroup } from '../types';
+import { Routine, Exercise, PlannedExercise, WorkoutSettings, WorkoutSession, MuscleGroup, ManualPRRecord } from '../types';
 import { PoseIcon } from './PoseIcon';
 import { EXERCISES } from '../data/exercises';
-import { getUnitTraits, UNIT_TRAITS } from '../data/unit-traits';
+import { getUnitTraits, UNIT_TRAITS, getDefaultUnit, resolveDistanceSystem } from '../data/unit-traits';
+import { getCategoryTheme, getFilterTheme } from '../data/category-theme';
 import { ConfirmModal } from './ConfirmModal';
+import { Modal } from './Modal';
 import {
   Calendar,
   Compass,
   Plus,
   ArrowRight,
   Sparkles,
+  ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   PlusCircle,
   X,
   Dumbbell,
@@ -24,6 +29,7 @@ import {
   Check,
   Edit2,
   Trash2,
+  Copy,
   ListPlus,
   Settings as SettingsIcon,
   Play,
@@ -36,15 +42,18 @@ interface DashboardProps {
   settings: WorkoutSettings;
   history: WorkoutSession[];
   onStartRoutine: (routine: Routine) => void;
-  onViewExercise: (exercise: Exercise) => void;
+  onViewExercise: (exercise: Exercise, context?: { routineId: string; exerciseId: string }) => void;
   onUpdateRoutines: (updated: Routine[]) => void;
   onUpdateExercises: (updated: Exercise[]) => void;
   onUpdateSettings: (updated: WorkoutSettings) => void;
+  manualPRs: Record<string, ManualPRRecord>;
+  onSaveManualPr: (exerciseId: string, value: number, reps: number, unit: string) => void;
   onOpenCalendarPlanner: () => void;
   selectedRoutineId: string;
   onSelectRoutineId: (id: string) => void;
   activeTab: 'routines' | 'library';
   onActiveTabChange: (tab: 'routines' | 'library') => void;
+  highlightRoutineId?: string | null;
 }
 
 interface PRSummary {
@@ -53,7 +62,8 @@ interface PRSummary {
   manualUnit?: string;
 }
 
-const ALL_MUSCLES: MuscleGroup[] = ['chest', 'lats', 'traps', 'front-delts', 'rear-delts', 'biceps', 'triceps', 'forearms', 'abs', 'obliques', 'lower-back', 'glutes', 'quads', 'hamstrings', 'calves'];
+const ALL_MUSCLES: MuscleGroup[] = ['chest', 'lats', 'traps', 'front-delts', 'side-delts', 'rear-delts', 'biceps', 'triceps', 'forearms', 'abs', 'obliques', 'lower-back', 'glutes', 'quads', 'hamstrings', 'calves'];
+const CATEGORY_ORDER: Exercise['category'][] = ['chest', 'back', 'shoulders', 'arms', 'legs', 'core', 'cardio'];
 
 const formatMuscleLabel = (muscle: MuscleGroup) => muscle.replace(/-/g, ' ');
 
@@ -80,11 +90,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onUpdateRoutines,
   onUpdateExercises,
   onUpdateSettings,
+  manualPRs,
+  onSaveManualPr,
   onOpenCalendarPlanner,
   selectedRoutineId,
   onSelectRoutineId,
   activeTab,
-  onActiveTabChange
+  onActiveTabChange,
+  highlightRoutineId
 }) => {
   // Exercise Library Search/Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -97,6 +110,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [routineFormName, setRoutineFormName] = useState('');
   const [routineFormExercises, setRoutineFormExercises] = useState<PlannedExercise[]>([]);
   const [routineToDeleteId, setRoutineToDeleteId] = useState<string | null>(null);
+
+  // Inline routine rename (no modal): which routine's title is being edited
+  // in place in the detail header, plus the working draft string.
+  const [renamingRoutineId, setRenamingRoutineId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  // Copy-routine naming prompt: the source routine being copied + the draft name.
+  const [duplicateSource, setDuplicateSource] = useState<Routine | null>(null);
+  const [duplicateName, setDuplicateName] = useState('');
 
   // Simple routine addition drawer toggle
   const [showRoutineModal, setShowRoutineModal] = useState(false);
@@ -188,6 +209,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return matchesSearch && matchesCat && matchesEquip;
   });
 
+  const groupedFilteredExercises = CATEGORY_ORDER
+    .filter(category => selectedCategory === 'all' || selectedCategory === category)
+    .map(category => ({
+      category,
+      exercises: filteredExercises
+        .filter(ex => ex.category === category)
+        .sort((a, b) => a.name.localeCompare(b.name))
+    }))
+    .filter(group => group.exercises.length > 0);
+
   // Handle Routine Save (New or update)
   const handleSaveRoutine = () => {
     if (!routineFormName.trim()) return;
@@ -234,6 +265,89 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setRoutineToDeleteId(null);
   };
 
+  // Duplicate a routine — deep-copies its planned exercises with fresh ids so
+  // edits to the copy never mutate the original, names it "<name> (Copy)",
+  // inserts it right after the source, and selects it.
+  // Step 1: open the naming prompt (pre-filled with the default "(Copy)" name).
+  const handleDuplicateRoutine = (routine: Routine) => {
+    setDuplicateSource(routine);
+    setDuplicateName(`${routine.name} (Copy)`);
+  };
+
+  // Step 2: commit the copy with the chosen name (falls back to "(Copy)" if blank).
+  const confirmDuplicateRoutine = () => {
+    if (!duplicateSource) return;
+    const routine = duplicateSource;
+    const stamp = Date.now();
+    const copy: Routine = {
+      id: `routine-${stamp}`,
+      name: duplicateName.trim() || `${routine.name} (Copy)`,
+      description: routine.description,
+      exercises: routine.exercises.map((ex, i) => ({
+        ...ex,
+        id: `plan-${stamp}-${i}`
+      }))
+    };
+    const idx = routines.findIndex(r => r.id === routine.id);
+    const updated = [...routines];
+    updated.splice(idx === -1 ? routines.length : idx + 1, 0, copy);
+    onUpdateRoutines(updated);
+    onSelectRoutineId(copy.id);
+    setDuplicateSource(null);
+    setDuplicateName('');
+  };
+
+  // Reorder routines in the horizontal selector (swap with the neighbour).
+  // Persists immediately; selection follows by id so it stays put.
+  const handleMoveRoutine = (index: number, dir: -1 | 1) => {
+    const target = index + dir;
+    if (target < 0 || target >= routines.length) return;
+    const next = [...routines];
+    [next[index], next[target]] = [next[target], next[index]];
+    onUpdateRoutines(next);
+  };
+
+  // Inline rename: open / commit / cancel. Commit trims and ignores empties
+  // (falls back to the existing name) so a routine can't lose its title.
+  const beginRenameRoutine = (routine: Routine) => {
+    setRenamingRoutineId(routine.id);
+    setRenameDraft(routine.name);
+  };
+  const commitRenameRoutine = () => {
+    if (!renamingRoutineId) return;
+    const name = renameDraft.trim();
+    if (name) {
+      onUpdateRoutines(routines.map(r => (r.id === renamingRoutineId ? { ...r, name } : r)));
+    }
+    setRenamingRoutineId(null);
+    setRenameDraft('');
+  };
+  const cancelRenameRoutine = () => {
+    setRenamingRoutineId(null);
+    setRenameDraft('');
+  };
+
+  // Build a fresh planned-exercise entry seeded from the exercise's own
+  // defaults: its logical default unit (kgs for weights, km/mi for distance
+  // cardio, sec/min for timed work, reps for bodyweight), its default
+  // set/rep targets, and — for weight movements — the user's chosen weight
+  // system (kg vs lb). Keeps every add-to-routine path consistent.
+  const buildPlannedExercise = (exerciseId: string): PlannedExercise => {
+    const ex = exercisesList.find(e => e.id === exerciseId);
+    const distanceSystem = resolveDistanceSystem(settings.distanceUnit, settings.weightUnit);
+    const base = ex ? getDefaultUnit(ex, distanceSystem) : 'kgs';
+    const unit = base === 'kgs' && settings.weightUnit === 'lbs' ? 'lbs' : base;
+    const traits = getUnitTraits(unit);
+    const isRepBased = traits.metric === 'weight-reps' || traits.metric === 'bodyweight-reps';
+    return {
+      id: `plan-${Date.now()}-${Math.random()}`,
+      exerciseId,
+      unit,
+      sets: traits.supportsSets ? (ex?.defaultSets ?? 3) : 1,
+      reps: isRepBased ? (ex?.defaultReps || traits.defaultValue) : traits.defaultValue
+    };
+  };
+
   // Toggle exercise selected inside editing routine state
   const handleTogglePlannedExercise = (exerciseId: string) => {
     setRoutineFormExercises(prev => {
@@ -243,34 +357,42 @@ export const Dashboard: React.FC<DashboardProps> = ({
         return prev.filter(item => item.exerciseId !== exerciseId);
       } else {
         // add
-        return [
-          ...prev,
-          {
-            id: `plan-${Date.now()}-${Math.random()}`,
-            exerciseId,
-            sets: 3,
-            reps: '10'
-          }
-        ];
+        return [...prev, buildPlannedExercise(exerciseId)];
       }
     });
   };
 
   // Modify set targets inside routine builder
-  const handleUpdatePlannedSetRep = (exerciseId: string, field: 'sets' | 'reps' | 'unit', value: any) => {
+  const handleUpdatePlannedSetRep = (exerciseId: string, field: 'sets' | 'reps' | 'unit' | 'weight', value: any) => {
     setRoutineFormExercises(prev =>
       prev.map(planned => {
         if (planned.exerciseId !== exerciseId) return planned;
-        const next = { ...planned, [field]: value };
+        const next: PlannedExercise = field === 'weight'
+          ? { ...planned, targetWeight: Math.max(0, Number(value) || 0) }
+          : { ...planned, [field]: value };
         // When the user switches to a unit that doesn't support multiple
-        // sets (km, sec, min — one-shot cardio), normalize sets to 1 so
-        // the persisted data matches the visible "no sets" UI.
-        if (field === 'unit' && !getUnitTraits(value).supportsSets) {
-          next.sets = 1;
+        // sets (distance units), normalize sets to 1 so
+        // the persisted data matches the visible "no sets" UI. Switching to
+        // a non-weight unit also clears any stale working weight.
+        if (field === 'unit') {
+          if (!getUnitTraits(value).supportsSets) next.sets = 1;
+          if (getUnitTraits(value).metric !== 'weight-reps') next.targetWeight = undefined;
         }
         return next;
       })
     );
+  };
+
+  // Reorder a planned exercise within the routine builder (up/down). Swaps
+  // with its neighbour; no-ops at the list boundaries.
+  const handleMovePlannedExercise = (index: number, dir: -1 | 1) => {
+    setRoutineFormExercises(prev => {
+      const target = index + dir;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
   };
 
   // Custom Exercise Builder save
@@ -295,27 +417,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     closeCreateExerciseModal();
   };
 
-  // Manual PR override state and supporting forms
-  const [manualPRs, setManualPRs] = useState<Record<string, { value: number; reps?: number; unit: string }>>(() => {
-    const stored = localStorage.getItem('gym_manual_prs');
-    return stored ? JSON.parse(stored) : {};
-  });
-
+  // Manual PR form state. Records are owned by App so Dashboard and detail
+  // sheets stay in sync without localStorage reads in child components.
   const [editingPrExerciseId, setEditingPrExerciseId] = useState<string | null>(null);
   const [prValue, setPrValue] = useState<number>(0);
   // 0 means "PR without a reps count", e.g. just "50 kg" — rendered as
   // a one-line badge instead of the "100 × 8" two-row layout.
   const [prReps, setPrReps] = useState<number>(0);
   const [prUnit, setPrUnit] = useState<string>('kgs');
-
-  const handleSaveManualPR = (exerciseId: string, value: number, reps: number, unit: string) => {
-    const updated = {
-      ...manualPRs,
-      [exerciseId]: reps > 0 ? { value, reps, unit } : { value, unit }
-    };
-    setManualPRs(updated);
-    localStorage.setItem('gym_manual_prs', JSON.stringify(updated));
-  };
 
   const exercisePRMap = useMemo(() => {
     const map = new Map<string, PRSummary>();
@@ -372,15 +481,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const isIncluded = currentSelectedRoutine.exercises.some(planned => planned.exerciseId === exerciseId);
     const nextExercises = isIncluded
       ? currentSelectedRoutine.exercises.filter(planned => planned.exerciseId !== exerciseId)
-      : [
-          ...currentSelectedRoutine.exercises,
-          {
-            id: `plan-${Date.now()}-${Math.random()}`,
-            exerciseId,
-            sets: 3,
-            reps: '10'
-          }
-        ];
+      : [...currentSelectedRoutine.exercises, buildPlannedExercise(exerciseId)];
 
     onUpdateRoutines(routines.map(routine =>
       routine.id === currentSelectedRoutine.id
@@ -438,7 +539,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 setIsEditingRoutine(false);
                 setShowRoutineModal(true);
               }}
-              className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 rounded-xl text-xs font-bold text-white shadow-lg shadow-violet-950/20 active:scale-95 transition-all"
+              className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-600))] hover:from-[rgb(var(--accent-500))] rounded-xl text-xs font-bold text-white shadow-lg shadow-[rgb(var(--accent-950)/0.20)] active:scale-95 transition-all"
             >
               <Plus className="w-4 h-4" /> Routine
             </button>
@@ -446,28 +547,63 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
           {/* Left-to-right horizontal scroll routines selector */}
           {routines.length > 0 && (
-            <div className="grid grid-cols-2 gap-2.5">
-                {routines.map(routine => {
+            <div className="relative -mx-1">
+              <div className="flex gap-2.5 overflow-x-auto pb-2 px-1 pr-8">
+                {routines.map((routine, index) => {
                   const isSelected = routine.id === currentSelectedRoutine?.id;
                   return (
-                    <button
+                    <div
                       key={routine.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={isSelected}
                       onClick={() => onSelectRoutineId(routine.id)}
-                      className={`text-left p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between h-[84px] cursor-pointer ${
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectRoutineId(routine.id); } }}
+                      className={`relative shrink-0 w-40 text-left p-3 rounded-2xl border transition-all duration-200 flex flex-col justify-between h-[88px] cursor-pointer ${
                         isSelected
-                          ? 'bg-gradient-to-br from-violet-600 to-indigo-600 text-white border-violet-500 shadow-lg shadow-violet-950/20 shadow-md'
+                          ? 'bg-gradient-to-br from-[rgb(var(--accent-600))] to-[rgb(var(--accent-600))] text-white border-[rgb(var(--accent-500))] shadow-lg shadow-[rgb(var(--accent-950)/0.20)]'
                           : 'bg-zinc-900/30 text-zinc-400 border-zinc-900/80 hover:text-zinc-300 hover:bg-zinc-900/60 hover:border-zinc-800'
                       }`}
                     >
-                      <span className={`text-xs font-black tracking-tight line-clamp-1 ${isSelected ? 'text-white font-extrabold' : 'text-zinc-300'}`}>
+                      <span className={`text-xs font-black tracking-tight line-clamp-2 pr-1 ${isSelected ? 'text-white font-extrabold' : 'text-zinc-300'}`}>
                         {routine.name}
                       </span>
-                      <span className={`text-[10px] font-extrabold ${isSelected ? 'text-violet-200' : 'text-zinc-500'}`}>
-                        {routine.exercises.length} Exercises
-                      </span>
-                    </button>
+                      <div className="flex items-center justify-between gap-1">
+                        <span className={`text-[10px] font-extrabold ${isSelected ? 'text-[rgb(var(--accent-200))]' : 'text-zinc-500'}`}>
+                          {routine.exercises.length} Exercises
+                        </span>
+                        {routines.length > 1 && (
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleMoveRoutine(index, -1); }}
+                              disabled={index === 0}
+                              aria-label={`Move ${routine.name} earlier`}
+                              className={`p-0.5 rounded transition disabled:opacity-25 ${isSelected ? 'text-white/80 hover:text-white hover:bg-white/10' : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800'}`}
+                            >
+                              <ChevronLeft className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleMoveRoutine(index, 1); }}
+                              disabled={index === routines.length - 1}
+                              aria-label={`Move ${routine.name} later`}
+                              className={`p-0.5 rounded transition disabled:opacity-25 ${isSelected ? 'text-white/80 hover:text-white hover:bg-white/10' : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800'}`}
+                            >
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   );
                 })}
+              </div>
+              {routines.length > 2 && (
+                <div className="pointer-events-none absolute right-0 top-0 bottom-2 w-12 bg-gradient-to-l from-black via-black/70 to-transparent flex items-center justify-end pr-1">
+                  <ChevronRight className="w-4 h-4 text-zinc-600" />
+                </div>
+              )}
             </div>
           )}
 
@@ -475,21 +611,54 @@ export const Dashboard: React.FC<DashboardProps> = ({
           {currentSelectedRoutine ? (
             <div
               id={`routine-box-${currentSelectedRoutine.id}`}
-              className="bg-zinc-900/35 border border-zinc-900 rounded-3xl p-5 hover:border-zinc-800/80 transition duration-300 shadow-xl relative overflow-hidden"
+              className={`bg-zinc-900/35 border border-zinc-900 rounded-3xl p-5 hover:border-zinc-800/80 transition duration-300 shadow-xl relative overflow-hidden ${
+                highlightRoutineId === currentSelectedRoutine.id ? 'ring-2 ring-[rgb(var(--accent-500)/0.80)] animate-pulse' : ''
+              }`}
             >
-              <div className="flex items-start justify-between border-b border-zinc-950 pb-4">
-                <div className="space-y-1">
-                  <h3 className="text-base font-black text-white tracking-tight">{currentSelectedRoutine.name}</h3>
-                  <div className="flex items-center gap-2 text-[10px] font-bold text-violet-500 uppercase tracking-wider">
+              <div className="flex items-start justify-between border-b border-zinc-950 pb-4 gap-3">
+                <div className="space-y-1 min-w-0 flex-1">
+                  {renamingRoutineId === currentSelectedRoutine.id ? (
+                    <input
+                      autoFocus
+                      value={renameDraft}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      onBlur={commitRenameRoutine}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitRenameRoutine();
+                        if (e.key === 'Escape') cancelRenameRoutine();
+                      }}
+                      maxLength={40}
+                      className="w-full bg-zinc-950 border border-[rgb(var(--accent-600)/0.60)] focus:border-[rgb(var(--accent-500))] focus:ring-1 focus:ring-[rgb(var(--accent-600)/0.30)] rounded-lg px-2 py-1 text-base font-black text-white tracking-tight focus:outline-none"
+                    />
+                  ) : (
+                    <h3
+                      onClick={() => beginRenameRoutine(currentSelectedRoutine)}
+                      className="text-base font-black text-white tracking-tight cursor-text hover:text-[rgb(var(--accent-200))] transition inline-flex items-center gap-1.5 group/name max-w-full"
+                      title="Tap to rename"
+                    >
+                      <span className="truncate">{currentSelectedRoutine.name}</span>
+                      <Edit2 className="w-3 h-3 text-zinc-600 group-hover/name:text-[rgb(var(--accent-400))] transition shrink-0" />
+                    </h3>
+                  )}
+                  <div className="flex items-center gap-2 text-[10px] font-bold text-[rgb(var(--accent-500))] uppercase tracking-wider">
                     <span>{currentSelectedRoutine.exercises.length} Exercises Planned</span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => handleDuplicateRoutine(currentSelectedRoutine)}
+                    className="p-2 bg-zinc-950 border border-zinc-900 rounded-xl text-zinc-400 hover:text-[rgb(var(--accent-300))] transition"
+                    title="Duplicate routine"
+                    aria-label="Duplicate routine"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
                   <button
                     onClick={() => handleEditRoutine(currentSelectedRoutine)}
                     className="p-2 bg-zinc-950 border border-zinc-900 rounded-xl text-zinc-400 hover:text-white transition"
                     title="Edit routine blueprint"
+                    aria-label="Edit routine blueprint"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
@@ -498,6 +667,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       onClick={() => handleDeleteRoutine(currentSelectedRoutine.id)}
                       className="p-2 bg-zinc-950 border border-zinc-900 rounded-xl text-zinc-400 hover:text-red-400 transition"
                       title="Delete routine blueprint"
+                      aria-label="Delete routine blueprint"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -519,36 +689,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     manualUnit: undefined
                   };
 
-                  // Colors mapped for category visuals
-                  const borderThemes: Record<string, string> = {
-                    chest: 'border-l-rose-500/85 group-hover:border-l-rose-500/55',
-                    back: 'border-l-emerald-500/85 group-hover:border-l-emerald-500/55',
-                    legs: 'border-l-blue-500/85 group-hover:border-l-blue-500/55',
-                    shoulders: 'border-l-amber-500/85 group-hover:border-l-amber-500/55',
-                    arms: 'border-l-violet-500/85 group-hover:border-l-violet-500/55',
-                    core: 'border-l-cyan-500/85 group-hover:border-l-cyan-500/55',
-                    cardio: 'border-l-indigo-500/85 group-hover:border-l-indigo-500/55'
-                  };
+                  const cardBorder = getCategoryTheme(linkedEx.category).cardBorder;
 
                   return (
                      <div
                       key={planned.id || index}
-                      onClick={() => onViewExercise(linkedEx)}
-                      className={`p-4 bg-zinc-950/45 hover:bg-zinc-950/80 rounded-2xl border border-zinc-900/50 border-l-4 ${borderThemes[linkedEx.category] || 'border-l-violet-500'} cursor-pointer transition-all duration-200 flex flex-col gap-3 group shadow-md shadow-black/20 hover:scale-[101%]`}
-                      title="View exercise guide reference"
+                      onClick={() => onViewExercise(linkedEx, { routineId: currentSelectedRoutine.id, exerciseId: planned.exerciseId })}
+                      className={`p-4 bg-zinc-950/45 hover:bg-zinc-950/80 rounded-2xl border border-zinc-900/50 border-l-4 ${cardBorder} cursor-pointer transition-all duration-200 flex flex-col gap-3 group shadow-md shadow-black/20 hover:scale-[101%]`}
+                      title="View guide & edit routine targets"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-center gap-3">
                           <PoseIcon name={linkedEx.poseIcon} size={42} className="shrink-0" />
                           <div>
-                            <span className="font-extrabold text-xs text-white leading-tight block tracking-tight group-hover:text-violet-400 transition-colors">
+                            <span className="font-extrabold text-xs text-white leading-tight block tracking-tight group-hover:text-[rgb(var(--accent-400))] transition-colors">
                               {linkedEx.name}
                             </span>
                             
                             <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                              <span className="text-[8.5px] uppercase font-black tracking-widest text-zinc-500 capitalize">{linkedEx.equipment}</span>
-                              <span className="text-zinc-800 text-[8px]">•</span>
-                              <span className="text-[8.5px] uppercase font-bold text-zinc-400 capitalize">{linkedEx.category}</span>
+                              <span className="text-[9px] uppercase font-black tracking-widest text-zinc-500 capitalize">{linkedEx.equipment}</span>
+                              <span className="text-zinc-800 text-[9px]">•</span>
+                              <span className="text-[9px] uppercase font-bold text-zinc-400 capitalize">{linkedEx.category}</span>
                             </div>
                           </div>
                         </div>
@@ -559,6 +720,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         <div className="shrink-0 flex items-center gap-2">
                           {(() => {
                             const traits = getUnitTraits(planned.unit);
+                            // For weight×reps movements with a pinned working
+                            // load, the second badge line shows that load (e.g.
+                            // "50 KG") so it reads beside the PR pill — the main
+                            // working weight vs the all-time best. Otherwise the
+                            // line just carries the unit label.
+                            const hasWeight = traits.metric === 'weight-reps' && !!planned.targetWeight;
                             return (
                               <span className="font-mono text-xs bg-zinc-900 text-zinc-300 border border-zinc-800 font-black px-2.5 py-1.5 rounded-xl inline-flex flex-col items-center leading-tight shadow-inner min-w-[58px]">
                                 <span>
@@ -567,7 +734,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                     : <>{planned.reps}</>
                                   }
                                 </span>
-                                <span className="text-violet-400 font-extrabold uppercase tracking-widest text-[8px]">{traits.shortLabel}</span>
+                                {hasWeight ? (
+                                  <span className="uppercase tracking-widest text-[9px] font-extrabold">
+                                    <span className="text-zinc-200">{planned.targetWeight}</span>{' '}
+                                    <span className="text-[rgb(var(--accent-400))]">{traits.shortLabel}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-[rgb(var(--accent-400))] font-extrabold uppercase tracking-widest text-[9px]">{traits.shortLabel}</span>
+                                )}
                               </span>
                             );
                           })()}
@@ -588,17 +762,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                   setPrReps(maxRepsAtMaxWeight);
                                   setPrUnit(manualUnit || planned.unit || 'kgs');
                                 }}
-                                className="font-mono text-xs text-violet-200 hover:text-violet-100 font-black bg-violet-600/15 hover:bg-violet-600/25 border border-violet-500/30 px-2.5 py-1.5 rounded-xl transition-all duration-150 active:scale-95 uppercase tracking-wide inline-flex flex-col items-center leading-tight min-w-[58px]"
+                                className="font-mono text-xs text-[rgb(var(--accent-200))] hover:text-[rgb(var(--accent-100))] font-black bg-[rgb(var(--accent-600)/0.15)] hover:bg-[rgb(var(--accent-600)/0.25)] border border-[rgb(var(--accent-500)/0.30)] px-2.5 py-1.5 rounded-xl transition-all duration-150 active:scale-95 uppercase tracking-wide inline-flex flex-col items-center leading-tight min-w-[58px]"
                                 title="Edit Personal Record"
                               >
                                 <span className="whitespace-nowrap">
-                                  <span className="text-[8px] text-violet-400 tracking-widest mr-1">PR</span>
+                                  <span className="text-[9px] text-[rgb(var(--accent-400))] tracking-widest mr-1">PR</span>
                                   {maxWeight}
                                   {maxRepsAtMaxWeight > 0 && (
-                                    <> <span className="text-violet-400/60">×</span> {maxRepsAtMaxWeight}</>
+                                    <> <span className="text-[rgb(var(--accent-400)/0.60)]">×</span> {maxRepsAtMaxWeight}</>
                                   )}
                                 </span>
-                                <span className="text-violet-400 font-extrabold uppercase tracking-widest text-[8px]">{prTraits.shortLabel}</span>
+                                <span className="text-[rgb(var(--accent-400))] font-extrabold uppercase tracking-widest text-[9px]">{prTraits.shortLabel}</span>
                               </button>
                             );
                           })() : (
@@ -610,7 +784,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                 setPrReps(0);
                                 setPrUnit(planned.unit || 'kgs');
                               }}
-                              className="text-[8.5px] text-violet-400 hover:text-violet-300 font-black tracking-widest uppercase bg-violet-600/15 px-2.5 py-1.5 rounded-lg border border-violet-500/25 hover:bg-violet-600/20 transition-all duration-150 active:scale-95 min-w-[52px]"
+                              className="text-[9px] text-[rgb(var(--accent-400))] hover:text-[rgb(var(--accent-300))] font-black tracking-widest uppercase bg-[rgb(var(--accent-600)/0.15)] px-2.5 py-1.5 rounded-lg border border-[rgb(var(--accent-500)/0.25)] hover:bg-[rgb(var(--accent-600)/0.20)] transition-all duration-150 active:scale-95 min-w-[52px]"
                             >
                               Log PR
                             </button>
@@ -643,12 +817,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 placeholder="Search exercises, muscles..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-900 focus:border-violet-600 focus:ring-1 focus:ring-violet-600/30 transition pl-10 pr-10 py-3 text-xs rounded-2xl text-zinc-200 placeholder-zinc-600 focus:outline-none"
+                className="w-full bg-zinc-950 border border-zinc-900 focus:border-[rgb(var(--accent-600))] focus:ring-1 focus:ring-[rgb(var(--accent-600)/0.30)] transition pl-10 pr-10 py-3 text-xs rounded-2xl text-zinc-200 placeholder-zinc-600 focus:outline-none"
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
                   className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-zinc-500 hover:text-zinc-300 rounded"
+                  aria-label="Clear exercise search"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -657,10 +832,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             <button
               onClick={() => setShowCreateExModal(true)}
-              className="shrink-0 flex items-center gap-1.5 px-3 py-3 bg-zinc-950 border border-zinc-900 rounded-2xl text-[10px] uppercase font-black text-zinc-300 hover:text-white hover:border-violet-700 transition duration-150"
+              className="shrink-0 flex items-center gap-1.5 px-3 py-3 bg-zinc-950 border border-zinc-900 rounded-2xl text-[10px] uppercase font-black text-zinc-300 hover:text-white hover:border-[rgb(var(--accent-700))] transition duration-150"
               title="Create a custom exercise"
             >
-              <PlusCircle className="w-3.5 h-3.5 text-violet-400" /> Custom
+              <PlusCircle className="w-3.5 h-3.5 text-[rgb(var(--accent-400))]" /> Custom
             </button>
           </div>
 
@@ -671,7 +846,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               {(searchQuery || selectedCategory !== 'all' || selectedEquipment !== 'all') && (
                 <button
                   onClick={clearFilters}
-                  className="text-[9px] font-black uppercase tracking-wider text-violet-400 hover:text-violet-300 transition duration-150"
+                  className="text-[9px] font-black uppercase tracking-wider text-[rgb(var(--accent-400))] hover:text-[rgb(var(--accent-300))] transition duration-150"
                 >
                   Reset
                 </button>
@@ -687,57 +862,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   const isSelected = selectedCategory === cat;
                   const isUnavailable = count === 0 && !isSelected;
                   
-                  const catThemes: Record<string, { idle: string; active: string; countIdle: string; countActive: string }> = {
-                    all: {
-                      idle: 'bg-violet-600/10 border-violet-500/30 text-violet-300 hover:text-violet-200',
-                      active: 'bg-violet-600/20 border-violet-500/50 text-violet-100',
-                      countIdle: 'bg-violet-950/50 text-violet-300',
-                      countActive: 'bg-violet-500/35 text-violet-100'
-                    },
-                    chest: {
-                      idle: 'bg-rose-500/10 border-rose-500/20 text-rose-400 hover:text-rose-300',
-                      active: 'bg-rose-500/20 border-rose-500/50 text-rose-100',
-                      countIdle: 'bg-rose-950/50 text-rose-300',
-                      countActive: 'bg-rose-500/30 text-rose-100'
-                    },
-                    back: {
-                      idle: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:text-emerald-300',
-                      active: 'bg-emerald-500/20 border-emerald-500/50 text-emerald-100',
-                      countIdle: 'bg-emerald-950/50 text-emerald-300',
-                      countActive: 'bg-emerald-500/30 text-emerald-100'
-                    },
-                    shoulders: {
-                      idle: 'bg-amber-500/10 border-amber-500/20 text-amber-400 hover:text-amber-300',
-                      active: 'bg-amber-500/20 border-amber-500/50 text-amber-100',
-                      countIdle: 'bg-amber-950/50 text-amber-300',
-                      countActive: 'bg-amber-500/30 text-amber-100'
-                    },
-                    arms: {
-                      idle: 'bg-violet-500/10 border-violet-500/20 text-violet-400 hover:text-violet-300',
-                      active: 'bg-violet-500/20 border-violet-500/50 text-violet-100',
-                      countIdle: 'bg-violet-950/50 text-violet-300',
-                      countActive: 'bg-violet-500/30 text-violet-100'
-                    },
-                    legs: {
-                      idle: 'bg-blue-500/10 border-blue-500/20 text-blue-400 hover:text-blue-300',
-                      active: 'bg-blue-500/20 border-blue-500/50 text-blue-100',
-                      countIdle: 'bg-blue-950/50 text-blue-300',
-                      countActive: 'bg-blue-500/30 text-blue-100'
-                    },
-                    core: {
-                      idle: 'bg-cyan-500/10 border-cyan-500/20 text-cyan-400 hover:text-cyan-300',
-                      active: 'bg-cyan-500/20 border-cyan-500/50 text-cyan-100',
-                      countIdle: 'bg-cyan-950/50 text-cyan-300',
-                      countActive: 'bg-cyan-500/30 text-cyan-100'
-                    },
-                    cardio: {
-                      idle: 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400 hover:text-indigo-300',
-                      active: 'bg-indigo-500/20 border-indigo-500/50 text-indigo-100',
-                      countIdle: 'bg-indigo-950/50 text-indigo-300',
-                      countActive: 'bg-indigo-500/30 text-indigo-100'
-                    }
-                  };
-                  const theme = catThemes[cat] || catThemes.all;
+                  const theme = getFilterTheme(cat);
 
                   return (
                     <button
@@ -750,14 +875,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       disabled={isUnavailable}
                       className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide whitespace-nowrap transition border flex items-center gap-1.5 ${
                         isSelected
-                          ? `${theme.active} shadow-sm`
+                          ? `${theme.pillActive} shadow-sm`
                           : isUnavailable
-                            ? `${theme.idle} opacity-40 cursor-not-allowed`
-                            : theme.idle
+                            ? `${theme.pillIdle} opacity-40 cursor-not-allowed`
+                            : theme.pillIdle
                       }`}
                     >
                       <span className="capitalize">{cat}</span>
-                      <span className={`text-[8.5px] font-mono px-1.5 py-0.5 rounded-full font-black ${
+                      <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full font-black ${
                         isSelected ? theme.countActive : theme.countIdle
                       }`}>
                         {count}
@@ -787,15 +912,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       disabled={isUnavailable}
                       className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide whitespace-nowrap transition border flex items-center gap-1.5 ${
                         isSelected
-                          ? 'bg-indigo-600/15 text-indigo-300 border-indigo-500/40 shadow-sm'
+                          ? 'bg-[rgb(var(--accent-600)/0.15)] text-[rgb(var(--accent-300))] border-[rgb(var(--accent-500)/0.40)] shadow-sm'
                           : isUnavailable
                             ? 'bg-zinc-900 border-zinc-800 text-zinc-400 opacity-40 cursor-not-allowed'
                           : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
                       <span className="capitalize">{eq}</span>
-                      <span className={`text-[8.5px] font-mono px-1.5 py-0.5 rounded-full font-black ${
-                        isSelected ? 'bg-indigo-500/30 text-indigo-300' : 'bg-zinc-950 text-zinc-500'
+                      <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full font-black ${
+                        isSelected ? 'bg-[rgb(var(--accent-500)/0.30)] text-[rgb(var(--accent-300))]' : 'bg-zinc-950 text-zinc-500'
                       }`}>
                         {count}
                       </span>
@@ -816,53 +941,49 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <span className="text-[10px] uppercase font-black tracking-widest text-zinc-500 block">No exercises match your filters.</span>
                 <button
                   onClick={clearFilters}
-                  className="px-3 py-1.5 rounded-xl border border-violet-500/25 bg-violet-600/15 text-[9px] font-black uppercase tracking-wider text-violet-300 hover:text-white hover:bg-violet-600/20 transition"
+                  className="px-3 py-1.5 rounded-xl border border-[rgb(var(--accent-500)/0.25)] bg-[rgb(var(--accent-600)/0.15)] text-[9px] font-black uppercase tracking-wider text-[rgb(var(--accent-300))] hover:text-white hover:bg-[rgb(var(--accent-600)/0.20)] transition"
                 >
                   Clear filters
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-2.5">
-                {filteredExercises.map(ex => {
+              <div className="space-y-5">
+                {groupedFilteredExercises.map(group => {
+                  const groupTheme = getCategoryTheme(group.category);
+                  return (
+                    <section key={group.category} className="space-y-2.5">
+                      <div className="flex items-center justify-between px-1">
+                        <span className={`text-[10px] font-black uppercase tracking-widest ${groupTheme.text}`}>
+                          {groupTheme.label}
+                        </span>
+                        <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full font-black ${groupTheme.countIdle}`}>
+                          {group.exercises.length}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-2.5">
+                        {group.exercises.map(ex => {
                   const isPlannedInSelectedRoutine = currentSelectedRoutine?.exercises?.some(pe => pe.exerciseId === ex.id);
                   const description = ex.whatItTrains.length > 80 ? `${ex.whatItTrains.slice(0, 77).trim()}...` : ex.whatItTrains;
                   
-                  // Category pill border
-                  const categoryBorderThemes: Record<string, string> = {
-                    chest: 'border-l-rose-500/60 group-hover:border-l-rose-500/35',
-                    back: 'border-l-emerald-500/60 group-hover:border-l-emerald-500/35',
-                    legs: 'border-l-blue-500/60 group-hover:border-l-blue-500/35',
-                    shoulders: 'border-l-amber-500/60 group-hover:border-l-amber-500/35',
-                    arms: 'border-l-violet-500/60 group-hover:border-l-violet-500/35',
-                    core: 'border-l-cyan-500/60 group-hover:border-l-cyan-500/35',
-                    cardio: 'border-l-indigo-500/60 group-hover:border-l-indigo-500/35'
-                  };
-                  const categoryWordThemes: Record<string, string> = {
-                    chest: 'bg-rose-500/10 border-rose-500/20 text-rose-400',
-                    back: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
-                    legs: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
-                    shoulders: 'bg-amber-500/10 border-amber-500/20 text-amber-400',
-                    arms: 'bg-violet-500/10 border-violet-500/20 text-violet-400',
-                    core: 'bg-cyan-500/10 border-cyan-500/20 text-cyan-400',
-                    cardio: 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400'
-                  };
+                  const theme = getCategoryTheme(ex.category);
 
                   return (
                     <div
                       key={ex.id}
                       onClick={() => onViewExercise(ex)}
-                      className={`p-3.5 bg-zinc-950/45 hover:bg-zinc-950/85 border border-zinc-900/50 border-l-4 ${categoryBorderThemes[ex.category] || 'border-l-zinc-700'} rounded-2xl flex items-start justify-between gap-3 cursor-pointer transition-all duration-200 group shadow-sm hover:scale-[101%]`}
+                      className={`p-3.5 bg-zinc-950/45 hover:bg-zinc-950/85 border border-zinc-900/50 border-l-4 ${theme.cardBorder} rounded-2xl flex items-start justify-between gap-3 cursor-pointer transition-all duration-200 group shadow-sm hover:scale-[101%]`}
                     >
                       <div className="min-w-0 flex-1">
                         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                           <PoseIcon name={ex.poseIcon} size={42} className="shrink-0" />
                           <div className="min-w-0 space-y-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <h4 className="text-xs font-black text-zinc-200 tracking-tight group-hover:text-violet-400 transition-colors">{ex.name}</h4>
+                              <h4 className="text-xs font-black text-zinc-200 tracking-tight group-hover:text-[rgb(var(--accent-400))] transition-colors">{ex.name}</h4>
                               
                               {/* In-Selected-Routine dynamic overlay badge indicator */}
                               {isPlannedInSelectedRoutine && (
-                                <span className="text-[7.5px] uppercase font-black text-violet-400 bg-violet-600/10 border border-violet-500/20 px-1.5 py-0.5 rounded-full leading-none">
+                                <span className="text-[7.5px] uppercase font-black text-[rgb(var(--accent-400))] bg-[rgb(var(--accent-600)/0.10)] border border-[rgb(var(--accent-500)/0.20)] px-1.5 py-0.5 rounded-full leading-none">
                                   Included Today
                                 </span>
                               )}
@@ -870,11 +991,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             <p className="text-[9px] text-zinc-500 font-semibold leading-relaxed line-clamp-1">{description}</p>
                           
                             <div className="flex flex-wrap items-center gap-1">
-                              <span className="text-[8px] bg-zinc-900 border border-zinc-800 font-mono text-zinc-400 font-bold px-1 py-0.5 rounded capitalize">
+                              <span className="text-[9px] bg-zinc-900 border border-zinc-800 font-mono text-zinc-400 font-bold px-1 py-0.5 rounded capitalize">
                                 {ex.equipment}
                               </span>
                               {ex.primaryMuscles.slice(0, 1).map(muscle => (
-                                <span key={muscle} className={`text-[8px] border font-bold px-1 py-0.5 rounded capitalize ${categoryWordThemes[ex.category] || 'bg-zinc-900 border-zinc-800 text-zinc-400'}`}>
+                                <span key={muscle} className={`text-[9px] border font-bold px-1 py-0.5 rounded capitalize ${theme.chip}`}>
                                   {formatMuscleLabel(muscle)}
                                 </span>
                               ))}
@@ -892,8 +1013,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             }}
                             className={`w-8 h-8 rounded-xl border flex items-center justify-center transition duration-150 active:scale-95 ${
                               isPlannedInSelectedRoutine
-                                ? 'bg-violet-600/20 border-violet-500/40 text-violet-300 hover:text-white'
-                                : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-violet-300 hover:border-violet-500/40'
+                                ? 'bg-[rgb(var(--accent-600)/0.20)] border-[rgb(var(--accent-500)/0.40)] text-[rgb(var(--accent-300))] hover:text-white'
+                                : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-[rgb(var(--accent-300))] hover:border-[rgb(var(--accent-500)/0.40)]'
                             }`}
                             title={isPlannedInSelectedRoutine ? `Remove from ${currentSelectedRoutine.name}` : `Add to ${currentSelectedRoutine.name}`}
                           >
@@ -903,6 +1024,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         <ChevronRight className="w-3.5 h-3.5 text-zinc-600 group-hover:text-zinc-400 transition-colors duration-150 mt-2" />
                       </div>
                     </div>
+                  );
+                })}
+                      </div>
+                    </section>
                   );
                 })}
               </div>
@@ -923,6 +1048,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   setIsEditingRoutine(false);
                 }}
                 className="text-zinc-500 hover:text-white"
+                aria-label="Close custom exercise modal"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -937,7 +1063,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   placeholder="e.g. Push Day, Upper Body Strength, Legs..."
                   value={routineFormName}
                   onChange={(e) => setRoutineFormName(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-violet-600"
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[rgb(var(--accent-600))]"
                 />
               </div>
 
@@ -950,7 +1076,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   {(modalSearch || modalCategory !== 'all' || modalEquipment !== 'all') && (
                     <button
                       onClick={() => { setModalSearch(''); setModalCategory('all'); setModalEquipment('all'); }}
-                      className="text-[9px] font-black uppercase tracking-wider text-violet-400 hover:text-violet-300"
+                      className="text-[9px] font-black uppercase tracking-wider text-[rgb(var(--accent-400))] hover:text-[rgb(var(--accent-300))]"
                     >
                       Reset
                     </button>
@@ -965,7 +1091,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     placeholder="Search exercises, muscles..."
                     value={modalSearch}
                     onChange={(e) => setModalSearch(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-9 py-2.5 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-violet-600"
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-9 py-2.5 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-[rgb(var(--accent-600))]"
                   />
                   {modalSearch && (
                     <button
@@ -981,31 +1107,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <div className="flex flex-wrap gap-1.5">
                   {categories.map(cat => {
                     const isSelected = modalCategory === cat;
-                    const catColors: Record<string, string> = {
-                      all: 'bg-violet-600/15 text-violet-200 border-violet-500/40',
-                      chest: 'bg-rose-500/15 text-rose-300 border-rose-500/35',
-                      back: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35',
-                      legs: 'bg-blue-500/15 text-blue-300 border-blue-500/35',
-                      shoulders: 'bg-amber-500/15 text-amber-300 border-amber-500/35',
-                      arms: 'bg-violet-500/15 text-violet-300 border-violet-500/35',
-                      core: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/35',
-                      cardio: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/35'
-                    };
-                    const idleColors: Record<string, string> = {
-                      all: 'bg-zinc-900 text-zinc-400 border-zinc-800',
-                      chest: 'bg-zinc-900 text-rose-400/70 border-zinc-800 hover:border-rose-500/30',
-                      back: 'bg-zinc-900 text-emerald-400/70 border-zinc-800 hover:border-emerald-500/30',
-                      legs: 'bg-zinc-900 text-blue-400/70 border-zinc-800 hover:border-blue-500/30',
-                      shoulders: 'bg-zinc-900 text-amber-400/70 border-zinc-800 hover:border-amber-500/30',
-                      arms: 'bg-zinc-900 text-violet-400/70 border-zinc-800 hover:border-violet-500/30',
-                      core: 'bg-zinc-900 text-cyan-400/70 border-zinc-800 hover:border-cyan-500/30',
-                      cardio: 'bg-zinc-900 text-indigo-400/70 border-zinc-800 hover:border-indigo-500/30'
-                    };
+                    const pillTheme = getFilterTheme(cat);
                     return (
                       <button
                         key={cat}
                         onClick={() => setModalCategory(cat === modalCategory ? 'all' : cat)}
-                        className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wide border transition-all ${isSelected ? catColors[cat] : idleColors[cat]}`}
+                        className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wide border transition-all ${isSelected ? pillTheme.pillActive : pillTheme.pillIdle}`}
                       >
                         {cat}
                       </button>
@@ -1023,7 +1130,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         onClick={() => setModalEquipment(eq === modalEquipment ? 'all' : eq)}
                         className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wide border transition-all ${
                           isSelected
-                            ? 'bg-indigo-600/15 text-indigo-200 border-indigo-500/40'
+                            ? 'bg-[rgb(var(--accent-600)/0.15)] text-[rgb(var(--accent-200))] border-[rgb(var(--accent-500)/0.40)]'
                             : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700'
                         }`}
                       >
@@ -1045,16 +1152,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       return matchesSearch && matchesCat && matchesEq;
                     });
 
-                    const accent: Record<string, string> = {
-                      chest: 'border-l-rose-500/70',
-                      back: 'border-l-emerald-500/70',
-                      legs: 'border-l-blue-500/70',
-                      shoulders: 'border-l-amber-500/70',
-                      arms: 'border-l-violet-500/70',
-                      core: 'border-l-cyan-500/70',
-                      cardio: 'border-l-indigo-500/70'
-                    };
-
                     if (candidates.length === 0) {
                       return <div className="py-8 text-center text-[10px] text-zinc-500 uppercase tracking-widest font-black">No matches</div>;
                     }
@@ -1065,7 +1162,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         <div
                           key={ex.id}
                           onClick={() => handleTogglePlannedExercise(ex.id)}
-                          className={`p-3 flex items-center justify-between rounded-xl cursor-pointer transition border-l-4 ${accent[ex.category] || 'border-l-zinc-700'} ${
+                          className={`p-3 flex items-center justify-between rounded-xl cursor-pointer transition border-l-4 ${getCategoryTheme(ex.category).cardBorder} ${
                             isSelected ? 'bg-zinc-900/70' : 'hover:bg-zinc-900/30'
                           }`}
                         >
@@ -1077,7 +1174,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             </div>
                           </div>
                           <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition shrink-0 ml-2 ${
-                            isSelected ? 'bg-violet-600 border-violet-500 text-white' : 'border-zinc-800 text-transparent'
+                            isSelected ? 'bg-[rgb(var(--accent-600))] border-[rgb(var(--accent-500))] text-white' : 'border-zinc-800 text-transparent'
                           }`}>
                             <Check className="w-3.5 h-3.5 font-bold" />
                           </div>
@@ -1090,30 +1187,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
               {/* Configure each selected exercise — 2-row layout per exercise:
                   row 1 = pose icon + name + remove, row 2 = inputs.
-                  Sets input is hidden for cardio units (km/sec/min) since
+                  Sets input is hidden for distance cardio units (km/mi) since
                   those don't fit a "sets × value" mental model. */}
               {routineFormExercises.length > 0 && (
                 <div className="space-y-3">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Configure each exercise</label>
                   <div className="space-y-3">
-                    {routineFormExercises.map(planned => {
+                    {routineFormExercises.map((planned, index) => {
                       const matchedEx = exercisesList.find(e => e.id === planned.exerciseId);
                       if (!matchedEx) return null;
                       const traits = getUnitTraits(planned.unit);
-                      const accent: Record<string, string> = {
-                        chest: 'border-l-rose-500/70',
-                        back: 'border-l-emerald-500/70',
-                        legs: 'border-l-blue-500/70',
-                        shoulders: 'border-l-amber-500/70',
-                        arms: 'border-l-violet-500/70',
-                        core: 'border-l-cyan-500/70',
-                        cardio: 'border-l-indigo-500/70'
-                      };
-
                       return (
                         <div
                           key={planned.exerciseId}
-                          className={`bg-zinc-900/40 rounded-2xl border border-zinc-900/60 border-l-4 ${accent[matchedEx.category] || 'border-l-zinc-700'} p-3 space-y-2.5`}
+                          className={`bg-zinc-900/40 rounded-2xl border border-zinc-900/60 border-l-4 ${getCategoryTheme(matchedEx.category).cardBorder} p-3 space-y-2.5`}
                         >
                           {/* Row 1: identity */}
                           <div className="flex items-center justify-between gap-2">
@@ -1121,13 +1208,39 @@ export const Dashboard: React.FC<DashboardProps> = ({
                               <PoseIcon name={matchedEx.poseIcon} size={28} className="shrink-0" />
                               <span className="text-xs font-bold text-zinc-100 truncate">{matchedEx.name}</span>
                             </div>
-                            <button
-                              onClick={() => handleTogglePlannedExercise(planned.exerciseId)}
-                              className="shrink-0 p-1 rounded-md text-zinc-600 hover:text-red-400 hover:bg-zinc-900 transition"
-                              title="Remove from routine"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {/* Reorder + remove. Up/down swap the exercise with
+                                its neighbour; disabled at the list boundaries. */}
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleMovePlannedExercise(index, -1)}
+                                disabled={index === 0}
+                                className="p-1 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-900 transition disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-zinc-500"
+                                title="Move up"
+                                aria-label={`Move ${matchedEx.name} up`}
+                              >
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleMovePlannedExercise(index, 1)}
+                                disabled={index === routineFormExercises.length - 1}
+                                className="p-1 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-900 transition disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-zinc-500"
+                                title="Move down"
+                                aria-label={`Move ${matchedEx.name} down`}
+                              >
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleTogglePlannedExercise(planned.exerciseId)}
+                                className="p-1 rounded-md text-zinc-600 hover:text-red-400 hover:bg-zinc-900 transition ml-0.5"
+                                title="Remove from routine"
+                                aria-label={`Remove ${matchedEx.name} from routine`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
 
                           {/* Row 2: inputs, aligned in a flex with consistent
@@ -1176,6 +1289,39 @@ export const Dashboard: React.FC<DashboardProps> = ({
                               </select>
                             </div>
                           </div>
+
+                          {/* Row 3: working-weight stepper — only meaningful for
+                              weight×reps units. Lets the user pin the load they
+                              actually train at, which shows on the plan card
+                              beside their PR (e.g. main 50 kg, PR 55). */}
+                          {traits.metric === 'weight-reps' && (
+                            <div className="flex items-center justify-between bg-zinc-950 px-2.5 py-1.5 rounded-xl border border-zinc-900">
+                              <span className="text-[9px] text-zinc-500 uppercase font-bold">Working {traits.shortLabel}</span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdatePlannedSetRep(planned.exerciseId, 'weight', (planned.targetWeight || 0) - traits.step)}
+                                  className="w-6 h-6 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 transition active:scale-95 text-sm font-black leading-none"
+                                  title={`Decrease by ${traits.step}`}
+                                  aria-label={`Decrease working weight by ${traits.step} ${traits.shortLabel}`}
+                                >
+                                  −
+                                </button>
+                                <span className="font-mono text-xs font-black text-zinc-200 min-w-[40px] text-center tabular-nums">
+                                  {planned.targetWeight ? planned.targetWeight : '—'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdatePlannedSetRep(planned.exerciseId, 'weight', (planned.targetWeight || 0) + traits.step)}
+                                  className="w-6 h-6 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 transition active:scale-95 text-sm font-black leading-none"
+                                  title={`Increase by ${traits.step}`}
+                                  aria-label={`Increase working weight by ${traits.step} ${traits.shortLabel}`}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -1197,7 +1343,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <button
                 onClick={handleSaveRoutine}
                 disabled={!routineFormName.trim() || routineFormExercises.length === 0}
-                className="flex-1 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 disabled:opacity-30 rounded-xl text-xs font-extrabold text-white"
+                className="flex-1 py-3 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-600))] disabled:opacity-30 rounded-xl text-xs font-extrabold text-white"
               >
                 Save blueprint
               </button>
@@ -1297,8 +1443,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         key={muscle}
                         type="button"
                         onClick={() => toggleCustomMuscle(muscle, customExPrimaryMuscles, setCustomExPrimaryMuscles)}
+                        aria-pressed={isSelected}
+                        aria-label={`Toggle primary ${formatMuscleLabel(muscle)}`}
                         className={`px-2.5 py-1 rounded-full text-[9px] font-bold capitalize transition ${
-                          isSelected ? 'bg-violet-600 text-white' : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+                          isSelected ? 'bg-[rgb(var(--accent-600))] text-white' : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
                         }`}
                       >
                         {formatMuscleLabel(muscle)}
@@ -1321,8 +1469,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         key={muscle}
                         type="button"
                         onClick={() => toggleCustomMuscle(muscle, customExSecondaryMuscles, setCustomExSecondaryMuscles)}
+                        aria-pressed={isSelected}
+                        aria-label={`Toggle secondary ${formatMuscleLabel(muscle)}`}
                         className={`px-2.5 py-1 rounded-full text-[9px] font-bold capitalize transition ${
-                          isSelected ? 'bg-violet-600 text-white' : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+                          isSelected ? 'bg-[rgb(var(--accent-600))] text-white' : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
                         }`}
                       >
                         {formatMuscleLabel(muscle)}
@@ -1377,7 +1527,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <button
                 onClick={handleCreateCustomExercise}
                 disabled={!customExName.trim()}
-                className="flex-1 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 disabled:opacity-30 rounded-xl font-extrabold text-white"
+                className="flex-1 py-3 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-600))] disabled:opacity-30 rounded-xl font-extrabold text-white"
               >
                 Add to Database
               </button>
@@ -1396,12 +1546,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 onClick={() => setEditingPrExerciseId(null)}
                 className="absolute top-4 right-4 p-2 text-zinc-500 hover:text-zinc-300 rounded-xl hover:bg-zinc-900/50 transition duration-150"
                 id="close-pr-modal-btn"
+                aria-label="Close record modal"
               >
                 <X className="w-4 h-4" />
               </button>
 
               <div className="flex items-center gap-3 mb-4">
-                <div className="p-3 bg-violet-600/10 rounded-2xl border border-violet-500/20 text-violet-400">
+                <div className="p-3 bg-[rgb(var(--accent-600)/0.10)] rounded-2xl border border-[rgb(var(--accent-500)/0.20)] text-[rgb(var(--accent-400))]">
                   <Trophy className="w-5 h-5 fill-current" />
                 </div>
                 <div>
@@ -1459,6 +1610,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <option value="kgs">kgs</option>
                     <option value="lbs">lbs</option>
                     <option value="kms">kms</option>
+                    <option value="miles">miles</option>
                     <option value="sec">sec</option>
                     <option value="min">min</option>
                   </select>
@@ -1475,11 +1627,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <button
                   onClick={() => {
                     if (editingPrExerciseId) {
-                      handleSaveManualPR(editingPrExerciseId, prValue, prReps, prUnit);
+                      onSaveManualPr(editingPrExerciseId, prValue, prReps, prUnit);
                       setEditingPrExerciseId(null);
                     }
                   }}
-                  className="flex-1 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-xl text-[10px] uppercase font-black tracking-wider hover:from-violet-500 hover:to-indigo-500 transition shadow-lg"
+                  className="flex-1 py-3 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-600))] text-white rounded-xl text-[10px] uppercase font-black tracking-wider hover:from-[rgb(var(--accent-500))] hover:to-[rgb(var(--accent-500))] transition shadow-lg"
                 >
                   Save Record
                 </button>
@@ -1499,6 +1651,48 @@ export const Dashboard: React.FC<DashboardProps> = ({
         onConfirm={confirmDeleteRoutine}
         onCancel={() => setRoutineToDeleteId(null)}
       />
+
+      {/* Copy-routine naming prompt */}
+      {duplicateSource && (
+        <Modal
+          open={!!duplicateSource}
+          onClose={() => { setDuplicateSource(null); setDuplicateName(''); }}
+          className="p-6 space-y-5"
+          labelledBy="duplicate-routine-title"
+        >
+            <div className="space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-widest text-[rgb(var(--accent-400))]">Duplicate routine</span>
+              <h3 id="duplicate-routine-title" className="text-base font-black text-white tracking-tight">Name your copy</h3>
+              <p className="text-[11px] text-zinc-500">A new routine will be created from <span className="text-zinc-300 font-semibold">{duplicateSource.name}</span>. Leave the name as-is or change it.</p>
+            </div>
+            <input
+              autoFocus
+              value={duplicateName}
+              onChange={(e) => setDuplicateName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') confirmDuplicateRoutine();
+                if (e.key === 'Escape') { setDuplicateSource(null); setDuplicateName(''); }
+              }}
+              maxLength={40}
+              placeholder={`${duplicateSource.name} (Copy)`}
+              className="w-full bg-zinc-900 border border-zinc-800 focus:border-[rgb(var(--accent-600))] rounded-xl px-4 py-3 text-sm text-white focus:outline-none"
+            />
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={confirmDuplicateRoutine}
+                className="w-full py-3 bg-[rgb(var(--accent-600))] hover:bg-[rgb(var(--accent-500))] text-white rounded-xl text-xs font-black tracking-widest uppercase transition"
+              >
+                Create Copy
+              </button>
+              <button
+                onClick={() => { setDuplicateSource(null); setDuplicateName(''); }}
+                className="w-full py-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 rounded-xl text-xs font-black tracking-widest uppercase transition"
+              >
+                Cancel
+              </button>
+            </div>
+        </Modal>
+      )}
     </div>
   );
 };
