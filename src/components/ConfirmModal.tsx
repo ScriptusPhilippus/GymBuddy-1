@@ -37,12 +37,12 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   return (
     <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-5">
       <div className={`bg-zinc-950 border w-full max-w-sm rounded-[34px] overflow-hidden p-6 text-center shadow-2xl relative animate-scale-up space-y-5 ${
-        isDanger ? 'border-rose-800/40' : 'border-violet-800/40'
+        isDanger ? 'border-rose-800/40' : 'border-[rgb(var(--accent-800)/0.40)]'
       }`}>
         <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto shadow-lg ${
           isDanger
             ? 'bg-rose-600/15 border border-rose-500/20 text-rose-400'
-            : 'bg-violet-600/15 border border-violet-500/20 text-violet-400'
+            : 'bg-[rgb(var(--accent-600)/0.15)] border border-[rgb(var(--accent-500)/0.20)] text-[rgb(var(--accent-400))]'
         }`}>
           <Icon className="w-8 h-8" />
         </div>
@@ -50,7 +50,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         <div className="space-y-1">
           <h3 className="text-base font-black text-white tracking-tight">{title}</h3>
           <p className={`text-[10px] font-black uppercase tracking-widest ${
-            isDanger ? 'text-rose-400' : 'text-violet-400'
+            isDanger ? 'text-rose-400' : 'text-[rgb(var(--accent-400))]'
           }`}>
             {eyebrow}
           </p>
@@ -66,7 +66,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             className={`w-full py-3 text-white rounded-xl text-xs font-black tracking-widest transition duration-150 ${
               isDanger
                 ? 'bg-rose-600 hover:bg-rose-500'
-                : 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500'
+                : 'bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-600))] hover:from-[rgb(var(--accent-500))]'
             }`}
           >
             {confirmLabel}

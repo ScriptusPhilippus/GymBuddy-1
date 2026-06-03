@@ -3,13 +3,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Routine, Exercise, WorkoutSession, LoggedExercise, LoggedSet, WorkoutSettings } from '../types';
 import { PoseIcon } from './PoseIcon';
-import { Play, Pause, Trash2, Check, Timer, ArrowLeft, PlusCircle, AlertCircle, Plus } from 'lucide-react';
-import { getUnitTraits } from '../data/unit-traits';
+import { Modal } from './Modal';
+import { ConfirmModal } from './ConfirmModal';
+import { Play, Pause, Trash2, Check, Timer, ArrowLeft, PlusCircle, AlertCircle, Plus, Search } from 'lucide-react';
+import { displayToKm, distanceUnitFor, durationDisplayToMinutes, getDefaultUnit, getUnitTraits, kmToDisplay, minutesToDurationDisplay, resolveDistanceSystem } from '../data/unit-traits';
+import { getCategoryTheme } from '../data/category-theme';
 
-export type ExerciseMetricType = 'weight-reps' | 'bodyweight-reps' | 'cardio-distance';
+export type ExerciseMetricType = 'weight-reps' | 'bodyweight-reps' | 'cardio-distance' | 'cardio-duration';
 
 /**
  * Pick the input layout for a logged set. If the planned exercise has a
@@ -21,9 +24,8 @@ export type ExerciseMetricType = 'weight-reps' | 'bodyweight-reps' | 'cardio-dis
 export function getExerciseMetricType(exercise: Exercise, plannedUnit?: string): ExerciseMetricType {
   if (plannedUnit && plannedUnit !== 'reps') {
     const traits = getUnitTraits(plannedUnit);
-    if (traits.metric === 'cardio-distance' || traits.metric === 'cardio-duration') {
-      return 'cardio-distance';
-    }
+    if (traits.metric === 'cardio-distance') return 'cardio-distance';
+    if (traits.metric === 'cardio-duration') return 'cardio-duration';
     if (traits.metric === 'weight-reps') return 'weight-reps';
   }
   const equip = exercise.equipment?.toLowerCase() || '';
@@ -53,6 +55,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
   const [loggedExercises, setLoggedExercises] = useState<LoggedExercise[]>([]);
   const [notes, setNotes] = useState('');
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [showEmptyFinishConfirm, setShowEmptyFinishConfirm] = useState(false);
   const skipPersistRef = useRef(false);
   const latestSessionRef = useRef({
     elapsedSeconds: 0,
@@ -65,6 +68,26 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
   const [restDuration, setRestDuration] = useState(0); // active countdown in seconds
   const [showRestTimer, setShowRestTimer] = useState(false);
   const restIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const distanceSystem = resolveDistanceSystem(settings.distanceUnit, settings.weightUnit);
+  const distanceUnit = distanceUnitFor(distanceSystem);
+  const distanceTraits = getUnitTraits(distanceUnit);
+  const weightTraits = getUnitTraits(settings.weightUnit === 'lbs' ? 'lbs' : 'kgs');
+  const weightStep = settings.weightIncrement && settings.weightIncrement > 0
+    ? settings.weightIncrement
+    : weightTraits.step;
+  const defaultDistanceKm = displayToKm(parseFloat(distanceTraits.defaultValue), distanceSystem);
+  const getDisplayDistance = (km?: number) => Number(kmToDisplay(km ?? defaultDistanceKm, distanceSystem).toFixed(1));
+  const handleUpdateDisplayDistance = (exerciseIndex: number, setIndex: number, value: number) => {
+    handleUpdateSet(exerciseIndex, setIndex, 'distance', displayToKm(value, distanceSystem));
+  };
+  const getDisplayDuration = (minutes?: number, unit?: string | null) => {
+    const traits = getUnitTraits(unit);
+    const fallback = durationDisplayToMinutes(parseFloat(traits.defaultValue), unit);
+    return Number(minutesToDurationDisplay(minutes ?? fallback, unit).toFixed(unit === 'sec' ? 0 : 1));
+  };
+  const handleUpdateDisplayDuration = (exerciseIndex: number, setIndex: number, value: number, unit?: string | null) => {
+    handleUpdateSet(exerciseIndex, setIndex, 'durationMinutes', durationDisplayToMinutes(value, unit));
+  };
 
   // Initialize session with current routine sets
   useEffect(() => {
@@ -107,11 +130,11 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
       // Seed distance / duration straight from the planned value when
       // the planned unit IS distance / duration. Otherwise pick sane defaults.
       const seedDistance = traits.metric === 'cardio-distance'
-        ? plannedReps
-        : 5.0;
+        ? displayToKm(plannedReps, planned.unit === 'miles' ? 'lbs' : 'kg')
+        : defaultDistanceKm;
       const seedDuration = traits.metric === 'cardio-duration'
-        ? plannedReps
-        : (traits.metric === 'cardio-distance' ? 15 : 15);
+        ? durationDisplayToMinutes(plannedReps, planned.unit)
+        : 15;
 
       for (let i = 0; i < setCount; i++) {
         sets.push({
@@ -120,7 +143,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
           reps: Math.round(plannedReps),
           completed: false,
           distance: metricType === 'cardio-distance' ? seedDistance : undefined,
-          durationMinutes: metricType === 'cardio-distance' ? seedDuration : undefined
+          durationMinutes: metricType === 'cardio-duration' ? seedDuration : undefined
         });
       }
 
@@ -133,7 +156,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
     setLoggedExercises(initialLogged);
     setElapsedSeconds(0);
     setIsPlaying(true);
-  }, [routine, settings]);
+  }, [routine, settings, defaultDistanceKm]);
 
   // Main Session Stopwatch ticking
   useEffect(() => {
@@ -324,7 +347,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
       });
 
       // trigger rest timer on complete check
-      if (!allCompleted) {
+      if (!allCompleted && (settings.autoStartRest ?? true)) {
         triggerRestTimer();
       }
 
@@ -332,7 +355,11 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
     });
   };
 
-  // Mark set as logged (Immutably and ensures instant UI reaction)
+  // Mark set as logged (Immutably and ensures instant UI reaction).
+  // Sets are sequential, so completion cascades: ticking set N also ticks
+  // every set before it (you can't do set 3 without 1 and 2), and un-ticking
+  // set N clears N and every set after it (re-opening an earlier set drops
+  // the ones that came later).
   const handleToggleCompleteSet = (exerciseIndex: number, setIndex: number) => {
     setLoggedExercises(prev => {
       const targetSet = prev[exerciseIndex].sets[setIndex];
@@ -342,16 +369,13 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
         return {
           ...item,
           sets: item.sets.map((s, sIdx) => {
-            if (sIdx !== setIndex) return s;
-            return {
-              ...s,
-              completed: nextCompleted
-            };
+            const shouldComplete = nextCompleted ? sIdx <= setIndex : sIdx < setIndex;
+            return s.completed === shouldComplete ? s : { ...s, completed: shouldComplete };
           })
         };
       });
 
-      if (nextCompleted) {
+      if (nextCompleted && (settings.autoStartRest ?? true)) {
         triggerRestTimer();
       }
 
@@ -365,17 +389,23 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
       prev.map((item, exIdx) => {
         if (exIdx !== exerciseIndex) return item;
         const exerciseEx = exercisesList.find(e => e.id === item.exerciseId);
-        const metricType = exerciseEx ? getExerciseMetricType(exerciseEx) : 'weight-reps';
+        const plannedUnit = routine.exercises.find(p => p.exerciseId === item.exerciseId)?.unit
+          ?? (exerciseEx ? getDefaultUnit(exerciseEx, distanceSystem) : undefined);
+        const metricType = exerciseEx ? getExerciseMetricType(exerciseEx, plannedUnit) : 'weight-reps';
+        const plannedTraits = getUnitTraits(plannedUnit);
         const sets = item.sets;
         const lastSet = sets[sets.length - 1];
+        const defaultDuration = plannedTraits.metric === 'cardio-duration'
+          ? durationDisplayToMinutes(parseFloat(plannedTraits.defaultValue), plannedUnit)
+          : 15;
 
         const newSet: LoggedSet = {
           id: `custom-set-${Date.now()}-${Math.random()}`,
           weight: lastSet ? lastSet.weight : (settings.weightUnit === 'lbs' ? 100 : 50),
           reps: lastSet ? lastSet.reps : 10,
           completed: false,
-          distance: metricType === 'cardio-distance' ? (lastSet?.distance ?? 5.0) : undefined,
-          durationMinutes: metricType === 'cardio-distance' ? (lastSet?.durationMinutes ?? 15) : undefined
+          distance: metricType === 'cardio-distance' ? (lastSet?.distance ?? defaultDistanceKm) : undefined,
+          durationMinutes: metricType === 'cardio-duration' ? (lastSet?.durationMinutes ?? defaultDuration) : undefined
         };
 
         return {
@@ -401,9 +431,33 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
 
   // Support adding a brand new exercise on-the-fly to the logged session
   const [showAddExModal, setShowAddExModal] = useState(false);
+  const [addExerciseSearch, setAddExerciseSearch] = useState('');
+  const addExerciseCandidates = useMemo(() => {
+    const q = addExerciseSearch.trim().toLowerCase();
+    return exercisesList
+      .filter(ex => !loggedExercises.some(le => le.exerciseId === ex.id))
+      .filter(ex => {
+        if (!q) return true;
+        const muscleStr = ex.primaryMuscles.join(' ').replace(/-/g, ' ').toLowerCase();
+        return ex.name.toLowerCase().includes(q)
+          || muscleStr.includes(q)
+          || ex.category.toLowerCase().includes(q)
+          || ex.equipment.toLowerCase().includes(q);
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [addExerciseSearch, exercisesList, loggedExercises]);
+  const closeAddExerciseModal = () => {
+    setShowAddExModal(false);
+    setAddExerciseSearch('');
+  };
   const handleAddExerciseToSession = (exerciseId: string) => {
     const exerciseEx = exercisesList.find(e => e.id === exerciseId);
-    const metricType = exerciseEx ? getExerciseMetricType(exerciseEx) : 'weight-reps';
+    const defaultUnit = exerciseEx ? getDefaultUnit(exerciseEx, distanceSystem) : undefined;
+    const metricType = exerciseEx ? getExerciseMetricType(exerciseEx, defaultUnit) : 'weight-reps';
+    const defaultTraits = getUnitTraits(defaultUnit);
+    const defaultDuration = defaultTraits.metric === 'cardio-duration'
+      ? durationDisplayToMinutes(parseFloat(defaultTraits.defaultValue), defaultUnit)
+      : durationDisplayToMinutes(parseFloat(getUnitTraits('min').defaultValue), 'min');
 
     setLoggedExercises(prev => {
       if (prev.some(logged => logged.exerciseId === exerciseId)) return prev;
@@ -418,18 +472,18 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
               weight: settings.weightUnit === 'lbs' ? 100 : 50,
               reps: 10,
               completed: false,
-              distance: metricType === 'cardio-distance' ? 5.0 : undefined,
-              durationMinutes: metricType === 'cardio-distance' ? 15 : undefined
+              distance: metricType === 'cardio-distance' ? defaultDistanceKm : undefined,
+              durationMinutes: metricType === 'cardio-duration' ? defaultDuration : undefined
             }
           ]
         }
       ];
     });
-    setShowAddExModal(false);
+    closeAddExerciseModal();
   };
 
   // Submit session
-  const handleCompleteSession = () => {
+  const finalizeSession = () => {
     // Clear live run flag
     skipPersistRef.current = true;
     localStorage.removeItem('gym_active_session_data');
@@ -447,6 +501,18 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
     onFinish(session);
   };
 
+  const handleCompleteSession = () => {
+    const completedCount = loggedExercises.reduce(
+      (sum, exercise) => sum + exercise.sets.filter(set => set.completed).length,
+      0
+    );
+    if (completedCount === 0) {
+      setShowEmptyFinishConfirm(true);
+      return;
+    }
+    finalizeSession();
+  };
+
   return (
     <div id="active-session-container" className="flex flex-col min-h-screen bg-zinc-950 text-zinc-100 pb-36 relative">
       
@@ -460,12 +526,13 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
             onClick={onCancel}
             className="p-2 -ml-1 shrink-0 rounded-full hover:bg-zinc-900 text-zinc-400 hover:text-white transition-all duration-200"
             title="Back to dashboard"
+            aria-label="Back to dashboard"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="min-w-0">
             <h1 className="text-sm font-black text-zinc-100 leading-tight truncate">{routine.name || 'Active Session'}</h1>
-            <span className="text-[9px] font-extrabold text-violet-500 uppercase tracking-wider">Logging Workout</span>
+            <span className="text-[9px] font-extrabold text-[rgb(var(--accent-500))] uppercase tracking-wider">Logging Workout</span>
           </div>
         </div>
 
@@ -490,9 +557,9 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
         
         {/* Max Timer Safety notice banner overlay */}
         <div className="bg-zinc-900/10 border border-zinc-900 rounded-3xl p-3.5 px-4 flex items-start gap-3">
-          <AlertCircle className="w-4 h-4 text-violet-400 mt-0.5 shrink-0" />
+          <AlertCircle className="w-4 h-4 text-[rgb(var(--accent-400))] mt-0.5 shrink-0" />
           <div className="text-[10px] text-zinc-500 font-bold leading-relaxed">
-            Persistence tracking is turned on. Session runs in background! Max Limit: <span className="text-violet-400 font-black">{settings.maxWorkoutDuration || 120} mins</span>. After this, it auto-logs sets for your safety.
+            Persistence tracking is turned on. Session runs in background! Max Limit: <span className="text-[rgb(var(--accent-400))] font-black">{settings.maxWorkoutDuration || 120} mins</span>. After this, it auto-logs sets for your safety.
           </div>
         </div>
 
@@ -504,7 +571,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
             placeholder="Feeling energetic? Key hydration remarks..."
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-violet-600 focus:ring-1 focus:ring-violet-600 transition resize-none"
+            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-[rgb(var(--accent-600))] focus:ring-1 focus:ring-[rgb(var(--accent-600))] transition resize-none"
           />
         </div>
 
@@ -514,19 +581,12 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
           if (!exerciseRef) return null;
 
           const allDone = isExCompleted(logged);
-          const metricType = getExerciseMetricType(exerciseRef);
+          const plannedUnit = routine.exercises.find(p => p.exerciseId === logged.exerciseId)?.unit
+            ?? getDefaultUnit(exerciseRef, distanceSystem);
+          const plannedTraits = getUnitTraits(plannedUnit);
+          const metricType = getExerciseMetricType(exerciseRef, plannedUnit);
 
-          // Universal color-coded category border theme
-          const borderThemes: Record<string, string> = {
-            chest: 'border-l-rose-500/80',
-            back: 'border-l-emerald-500/80',
-            legs: 'border-l-blue-500/80',
-            shoulders: 'border-l-amber-500/80',
-            arms: 'border-l-violet-500/80',
-            core: 'border-l-cyan-500/80',
-            cardio: 'border-l-indigo-500/80'
-          };
-          const cardBorderColor = borderThemes[exerciseRef.category] || 'border-l-zinc-700';
+          const cardBorderColor = getCategoryTheme(exerciseRef.category).cardBorder;
 
           return (
             <div
@@ -542,6 +602,8 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                   {/* Dynamic Fast Master Completion Switch - solves checkoff speed issue */}
                   <button
                     onClick={() => handleToggleAllSets(exIdx)}
+                    aria-label={allDone ? `Unmark ${exerciseRef.name} completed` : `Mark ${exerciseRef.name} completed`}
+                    aria-pressed={allDone}
                     className={`w-6 h-6 rounded-full border flex items-center justify-center transition focus:outline-none ${
                       allDone 
                         ? 'bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-950/40' 
@@ -560,21 +622,12 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                       {exerciseRef.name}
                     </h3>
                     {(() => {
-                      const categoryTextColors: Record<string, string> = {
-                        chest: 'text-rose-400 bg-rose-500/5 border-rose-500/10',
-                        back: 'text-emerald-400 bg-emerald-500/5 border-emerald-500/10',
-                        legs: 'text-blue-400 bg-blue-500/5 border-blue-500/10',
-                        shoulders: 'text-amber-400 bg-amber-500/5 border-amber-500/10',
-                        arms: 'text-violet-400 bg-violet-500/5 border-violet-500/10',
-                        core: 'text-cyan-400 bg-cyan-500/5 border-cyan-500/10',
-                        cardio: 'text-indigo-400 bg-indigo-500/5 border-indigo-500/10'
-                      };
-                      const badgeClass = categoryTextColors[exerciseRef.category] || 'text-zinc-400 bg-zinc-900 border-zinc-800';
+                      const badgeClass = getCategoryTheme(exerciseRef.category).chip;
                       return (
                         <p className="text-[9px] font-bold text-zinc-500 mt-1 flex items-center gap-1.5 capitalize">
                           <span>{exerciseRef.equipment}</span>
                           <span className="text-zinc-800 font-extrabold">•</span>
-                          <span className={`px-1.5 py-0.5 rounded font-black text-[8px] uppercase tracking-wider border ${badgeClass}`}>{exerciseRef.category}</span>
+                          <span className={`px-1.5 py-0.5 rounded font-black text-[9px] uppercase tracking-wider border ${badgeClass}`}>{exerciseRef.category}</span>
                         </p>
                       );
                     })()}
@@ -583,19 +636,21 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
 
                 <div className="flex items-center gap-1.5">
                   {/* Set completion counter */}
-                  <span className={`text-[8.5px] font-mono font-black px-2 py-0.5 rounded-full ${
+                  <span className={`text-[9px] font-mono font-black px-2 py-0.5 rounded-full ${
                     allDone ? 'bg-emerald-950/30 text-emerald-400' : 'bg-zinc-950 text-zinc-500'
                   }`}>
                     {logged.sets.filter(s => s.completed).length}/{logged.sets.length} sets
                   </span>
 
-                  <button
-                    onClick={() => handleAddSet(exIdx)}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-[10px] font-bold text-zinc-300 hover:text-white transition-all"
-                  >
-                    <Plus className="w-3 h-3" />
-                    Add Set
-                  </button>
+                  {metricType !== 'cardio-distance' && (
+                    <button
+                      onClick={() => handleAddSet(exIdx)}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-[10px] font-bold text-zinc-300 hover:text-white transition-all"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Add Set
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -616,8 +671,12 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                 )}
                 {metricType === 'cardio-distance' && (
                   <>
-                    <span className="col-span-4 text-center">Distance</span>
-                    <span className="col-span-3 text-center">Duration</span>
+                    <span className="col-span-7 text-center">Distance ({distanceTraits.shortLabel})</span>
+                  </>
+                )}
+                {metricType === 'cardio-duration' && (
+                  <>
+                    <span className="col-span-7 text-center">Duration ({plannedTraits.shortLabel})</span>
                   </>
                 )}
                 <span className="col-span-3 text-right pr-2">Done</span>
@@ -638,6 +697,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                         <button
                           onClick={() => handleRemoveSet(exIdx, setIdx)}
                           className="p-1 hover:text-red-400 rounded transition text-zinc-700"
+                          aria-label={`Remove set ${setIdx + 1}`}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -651,9 +711,10 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                     {metricType === 'weight-reps' && (
                       <div className="col-span-4 px-1.5 flex items-center justify-center gap-1">
                         <button
-                          onClick={() => handleUpdateSet(exIdx, setIdx, 'weight', Math.max(0, set.weight - (settings.weightUnit === 'lbs' ? 5 : 2.5)))}
+                          onClick={() => handleUpdateSet(exIdx, setIdx, 'weight', Math.max(0, set.weight - weightStep))}
                           disabled={set.completed}
                           className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[10px] font-black"
+                          aria-label={`Decrease weight by ${weightStep}`}
                         >
                           -
                         </button>
@@ -661,14 +722,15 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                           type="number"
                           value={set.weight}
                           disabled={set.completed}
-                          step={settings.weightUnit === 'lbs' ? 5 : 2.5}
+                          step={weightStep}
                           onChange={(e) => handleUpdateSet(exIdx, setIdx, 'weight', parseFloat(e.target.value) || 0)}
-                          className="w-12 bg-zinc-900/45 border border-zinc-800 focus:border-violet-600 rounded px-1 py-0.5 text-xs text-center text-zinc-200 font-mono disabled:opacity-45 focus:outline-none"
+                          className="w-12 bg-zinc-900/45 border border-zinc-800 focus:border-[rgb(var(--accent-600))] rounded px-1 py-0.5 text-xs text-center text-zinc-200 font-mono disabled:opacity-45 focus:outline-none"
                         />
                         <button
-                          onClick={() => handleUpdateSet(exIdx, setIdx, 'weight', set.weight + (settings.weightUnit === 'lbs' ? 5 : 2.5))}
+                          onClick={() => handleUpdateSet(exIdx, setIdx, 'weight', set.weight + weightStep)}
                           disabled={set.completed}
                           className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[10px] font-black"
+                          aria-label={`Increase weight by ${weightStep}`}
                         >
                           +
                         </button>
@@ -684,42 +746,87 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                     )}
 
                     {metricType === 'cardio-distance' && (
-                      <div className="col-span-4 px-1 flex items-center justify-center gap-0.5">
+                      <div className="col-span-7 px-1 flex items-center justify-center gap-1">
                         <button
-                          onClick={() => handleUpdateSet(exIdx, setIdx, 'distance', Math.max(0, parseFloat(((set.distance ?? 5.0) - 0.5).toFixed(1))))}
+                          onClick={() => handleUpdateDisplayDistance(exIdx, setIdx, Math.max(0, parseFloat((getDisplayDistance(set.distance) - distanceTraits.step).toFixed(1))))}
                           disabled={set.completed}
-                          className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 api-adjustment-trigger flex items-center justify-center text-[8px] font-black"
+                          className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 api-adjustment-trigger flex items-center justify-center text-[9px] font-black"
+                          aria-label={`Decrease distance by ${distanceTraits.step} ${distanceTraits.shortLabel}`}
                         >
                           -
                         </button>
                         <div className="flex items-center gap-0.5">
                           <input
                             type="number"
-                            value={set.distance ?? 5.0}
+                            value={getDisplayDistance(set.distance)}
                             disabled={set.completed}
-                            step={0.5}
-                            className="w-10 bg-zinc-900/45 border border-zinc-800 focus:border-violet-600 rounded px-1 py-0.5 text-[11px] text-center text-zinc-200 font-mono disabled:opacity-45 focus:outline-none"
-                            onChange={(e) => handleUpdateSet(exIdx, setIdx, 'distance', parseFloat(e.target.value) || 0)}
+                            step={distanceTraits.step}
+                            className="w-10 bg-zinc-900/45 border border-zinc-800 focus:border-[rgb(var(--accent-600))] rounded px-1 py-0.5 text-[11px] text-center text-zinc-200 font-mono disabled:opacity-45 focus:outline-none"
+                            onChange={(e) => handleUpdateDisplayDistance(exIdx, setIdx, parseFloat(e.target.value) || 0)}
                           />
-                          <span className="text-[8px] font-bold text-zinc-500">km</span>
+                          <span className="text-[9px] font-bold text-zinc-500">{distanceTraits.shortLabel}</span>
                         </div>
                         <button
-                          onClick={() => handleUpdateSet(exIdx, setIdx, 'distance', parseFloat(((set.distance ?? 5.0) + 0.5).toFixed(1)))}
+                          onClick={() => handleUpdateDisplayDistance(exIdx, setIdx, parseFloat((getDisplayDistance(set.distance) + distanceTraits.step).toFixed(1)))}
                           disabled={set.completed}
-                          className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[8px] font-black"
+                          className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[9px] font-black"
+                          aria-label={`Increase distance by ${distanceTraits.step} ${distanceTraits.shortLabel}`}
                         >
                           +
                         </button>
                       </div>
                     )}
 
-                    {/* COLUMN 3: reps or duration based on type */}
-                    {metricType !== 'cardio-distance' ? (
+                    {metricType === 'cardio-duration' && (
+                      <div className="col-span-7 px-1 flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => handleUpdateDisplayDuration(
+                            exIdx,
+                            setIdx,
+                            Math.max(0, parseFloat((getDisplayDuration(set.durationMinutes, plannedUnit) - plannedTraits.step).toFixed(plannedUnit === 'sec' ? 0 : 1))),
+                            plannedUnit
+                          )}
+                          disabled={set.completed}
+                          className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[9px] font-black"
+                          aria-label={`Decrease duration by ${plannedTraits.step} ${plannedTraits.shortLabel}`}
+                        >
+                          -
+                        </button>
+                        <div className="flex items-center gap-0.5">
+                          <input
+                            type="number"
+                            value={getDisplayDuration(set.durationMinutes, plannedUnit)}
+                            disabled={set.completed}
+                            step={plannedTraits.step}
+                            className="w-12 bg-zinc-900/45 border border-zinc-800 focus:border-[rgb(var(--accent-600))] rounded px-1 py-0.5 text-[11px] text-center text-zinc-200 font-mono disabled:opacity-45 focus:outline-none"
+                            onChange={(e) => handleUpdateDisplayDuration(exIdx, setIdx, parseFloat(e.target.value) || 0, plannedUnit)}
+                          />
+                          <span className="text-[9px] font-bold text-zinc-500">{plannedTraits.shortLabel}</span>
+                        </div>
+                        <button
+                          onClick={() => handleUpdateDisplayDuration(
+                            exIdx,
+                            setIdx,
+                            parseFloat((getDisplayDuration(set.durationMinutes, plannedUnit) + plannedTraits.step).toFixed(plannedUnit === 'sec' ? 0 : 1)),
+                            plannedUnit
+                          )}
+                          disabled={set.completed}
+                          className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[9px] font-black"
+                          aria-label={`Increase duration by ${plannedTraits.step} ${plannedTraits.shortLabel}`}
+                        >
+                          +
+                        </button>
+                      </div>
+                    )}
+
+                    {/* COLUMN 3: reps for rep-based types */}
+                    {(metricType === 'weight-reps' || metricType === 'bodyweight-reps') && (
                       <div className="col-span-3 px-1.5 flex items-center justify-center gap-1">
                         <button
                           onClick={() => handleUpdateSet(exIdx, setIdx, 'reps', Math.max(0, set.reps - 1))}
                           disabled={set.completed}
                           className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[10px] font-black"
+                          aria-label="Decrease reps"
                         >
                           -
                         </button>
@@ -728,39 +835,13 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                           value={set.reps}
                           disabled={set.completed}
                           onChange={(e) => handleUpdateSet(exIdx, setIdx, 'reps', parseInt(e.target.value) || 0)}
-                          className="w-9 bg-zinc-900/45 border border-zinc-800 focus:border-violet-600 rounded px-1 py-0.5 text-xs text-center text-zinc-200 font-mono disabled:opacity-45 focus:outline-none"
+                          className="w-9 bg-zinc-900/45 border border-zinc-800 focus:border-[rgb(var(--accent-600))] rounded px-1 py-0.5 text-xs text-center text-zinc-200 font-mono disabled:opacity-45 focus:outline-none"
                         />
                         <button
                           onClick={() => handleUpdateSet(exIdx, setIdx, 'reps', set.reps + 1)}
                           disabled={set.completed}
                           className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[10px] font-black"
-                        >
-                          +
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="col-span-3 px-1 flex items-center justify-center gap-0.5">
-                        <button
-                          onClick={() => handleUpdateSet(exIdx, setIdx, 'durationMinutes', Math.max(0, (set.durationMinutes ?? 15) - 1))}
-                          disabled={set.completed}
-                          className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[8px] font-black"
-                        >
-                          -
-                        </button>
-                        <div className="flex items-center gap-0.5">
-                          <input
-                            type="number"
-                            value={set.durationMinutes ?? 15}
-                            disabled={set.completed}
-                            className="w-8 bg-zinc-900/45 border border-zinc-800 focus:border-violet-600 rounded px-1 py-0.5 text-[11px] text-center text-zinc-200 font-mono disabled:opacity-45 focus:outline-none"
-                            onChange={(e) => handleUpdateSet(exIdx, setIdx, 'durationMinutes', parseInt(e.target.value) || 0)}
-                          />
-                          <span className="text-[8px] font-bold text-zinc-500">min</span>
-                        </div>
-                        <button
-                          onClick={() => handleUpdateSet(exIdx, setIdx, 'durationMinutes', (set.durationMinutes ?? 15) + 1)}
-                          disabled={set.completed}
-                          className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[8px] font-black"
+                          aria-label="Increase reps"
                         >
                           +
                         </button>
@@ -771,6 +852,8 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                     <div className="col-span-3 flex justify-end pr-2">
                       <button
                         onClick={() => handleToggleCompleteSet(exIdx, setIdx)}
+                        aria-label={set.completed ? `Unmark set ${setIdx + 1}` : `Mark set ${setIdx + 1} completed`}
+                        aria-pressed={set.completed}
                         className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all duration-150 focus:outline-none ${
                           set.completed
                             ? 'bg-gradient-to-r from-emerald-600 to-teal-600 border-emerald-500 text-white shadow shadow-emerald-950/20'
@@ -790,7 +873,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
         {/* Add non-routine exercise dynamically */}
         <button
           onClick={() => setShowAddExModal(true)}
-          className="w-full py-4 border border-dashed border-zinc-800 rounded-3xl hover:border-violet-700/60 hover:bg-violet-950/5 flex items-center justify-center gap-2 text-zinc-500 hover:text-violet-400 transition"
+          className="w-full py-4 border border-dashed border-zinc-800 rounded-3xl hover:border-[rgb(var(--accent-700)/0.60)] hover:bg-[rgb(var(--accent-950)/0.05)] flex items-center justify-center gap-2 text-zinc-500 hover:text-[rgb(var(--accent-400))] transition"
         >
           <PlusCircle className="w-4 h-4" />
           <span className="text-xs uppercase font-extrabold tracking-widest text-zinc-400">Integrate Unplanned Exercise</span>
@@ -803,10 +886,10 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
           live on top of the page so they're reachable on any scroll. */}
       <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-2 pointer-events-none">
         {showRestTimer && restDuration > 0 && (
-          <div className="bg-zinc-950/95 border border-violet-700/40 text-white px-4 py-2 rounded-2xl flex items-center gap-3 shadow-xl shadow-black backdrop-blur-md animate-fade-in pointer-events-auto">
+          <div className="bg-zinc-950/95 border border-[rgb(var(--accent-700)/0.40)] text-white px-4 py-2 rounded-2xl flex items-center gap-3 shadow-xl shadow-black backdrop-blur-md animate-fade-in pointer-events-auto">
             <div className="flex flex-col leading-tight">
-              <span className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Rest Countdown</span>
-              <span className="font-mono text-sm font-black text-violet-400">
+              <span className="text-[9px] font-black uppercase text-zinc-500 tracking-widest">Rest Countdown</span>
+              <span className="font-mono text-sm font-black text-[rgb(var(--accent-400))]">
                 {restDuration}s <span className="text-zinc-500 font-bold lowercase text-[10px]">left</span>
               </span>
             </div>
@@ -825,13 +908,14 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
             className={`p-1.5 rounded-full transition-all duration-150 ${
               isPlaying
                 ? 'bg-zinc-900 text-zinc-300 hover:text-white hover:bg-zinc-800'
-                : 'bg-violet-600/30 text-violet-200 hover:bg-violet-600/50'
+                : 'bg-[rgb(var(--accent-600)/0.30)] text-[rgb(var(--accent-200))] hover:bg-[rgb(var(--accent-600)/0.50)]'
             }`}
             title={isPlaying ? 'Pause session' : 'Resume session'}
+            aria-label={isPlaying ? 'Pause session' : 'Resume session'}
           >
             {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
           </button>
-          <Timer className={`w-3.5 h-3.5 ${isPlaying ? 'text-violet-400 animate-pulse' : 'text-zinc-500'}`} />
+          <Timer className={`w-3.5 h-3.5 ${isPlaying ? 'text-[rgb(var(--accent-400))] animate-pulse' : 'text-zinc-500'}`} />
           <span className="font-mono text-sm font-black text-white tracking-widest leading-none pr-2">
             {formatTime(elapsedSeconds)}
           </span>
@@ -840,43 +924,64 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
 
       {/* MODAL: ADD UNPLANNED EXERCISE ON FLY */}
       {showAddExModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-zinc-950 border border-zinc-900 rounded-3xl w-full max-w-sm overflow-hidden animate-slide-up shadow-2xl">
+        <Modal
+          open={showAddExModal}
+          onClose={closeAddExerciseModal}
+          labelledBy="add-exercise-title"
+        >
             <div className="p-5 border-b border-zinc-900 flex justify-between items-center bg-zinc-950/20">
               <div>
-                <h3 className="text-xs font-black uppercase tracking-wider text-white">Add Dynamic Exercise</h3>
+                <h3 id="add-exercise-title" className="text-xs font-black uppercase tracking-wider text-white">Add Dynamic Exercise</h3>
                 <p className="text-[9px] text-zinc-500 font-bold">Inject unplanned item to this live session list</p>
               </div>
               <button 
-                onClick={() => setShowAddExModal(false)}
+                onClick={closeAddExerciseModal}
                 className="text-zinc-400 hover:text-white pr-1"
+                aria-label="Close add exercise modal"
               >
                 Cancel
               </button>
             </div>
-            <div className="p-4 max-h-[350px] overflow-y-auto space-y-1">
-              {exercisesList
-                .filter(ex => !loggedExercises.some(le => le.exerciseId === ex.id))
-                .map(ex => (
-                  <button
-                    key={ex.id}
-                    onClick={() => handleAddExerciseToSession(ex.id)}
-                    className="w-full text-left p-3 bg-zinc-900/30 hover:bg-zinc-900/80 border border-zinc-900 rounded-2xl flex items-center gap-3 transition"
-                  >
-                    <PoseIcon name={ex.poseIcon} size={30} className="shrink-0" />
-                    <div>
-                      <span className="text-xs font-bold text-zinc-200 block">{ex.name}</span>
-                      <span className="text-[9px] uppercase font-bold text-zinc-500 capitalize">{ex.equipment} • {ex.category}</span>
-                    </div>
-                  </button>
-                ))
-              }
-              {exercisesList.filter(ex => !loggedExercises.some(le => le.exerciseId === ex.id)).length === 0 && (
-                <div className="text-center py-8 text-zinc-500 text-xs font-bold">All catalog exercises already listed!</div>
-              )}
+            <div className="p-4 space-y-3">
+              <div className="relative">
+                <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={addExerciseSearch}
+                  onChange={(e) => setAddExerciseSearch(e.target.value)}
+                  placeholder="Search name or muscle..."
+                  className="w-full bg-zinc-950 border border-zinc-900 focus:border-[rgb(var(--accent-600))] focus:ring-1 focus:ring-[rgb(var(--accent-600)/0.30)] transition pl-10 pr-3 py-3 text-xs rounded-2xl text-zinc-200 placeholder-zinc-600 focus:outline-none"
+                />
+              </div>
+
+              <div className="max-h-[330px] overflow-y-auto space-y-1.5 pr-1">
+                {addExerciseCandidates.map(ex => {
+                  const theme = getCategoryTheme(ex.category);
+                  return (
+                    <button
+                      key={ex.id}
+                      onClick={() => handleAddExerciseToSession(ex.id)}
+                      className={`w-full text-left p-3 bg-zinc-900/30 hover:bg-zinc-900/80 border border-zinc-900 border-l-4 ${theme.cardBorder} rounded-2xl flex items-center gap-3 transition group`}
+                    >
+                      <PoseIcon name={ex.poseIcon} size={30} className="shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <span className="text-xs font-bold text-zinc-200 block truncate group-hover:text-white">{ex.name}</span>
+                        <span className="text-[9px] uppercase font-bold text-zinc-500 capitalize">{ex.equipment}</span>
+                      </div>
+                      <span className={`text-[9px] border font-black px-1.5 py-0.5 rounded uppercase tracking-wide ${theme.chip}`}>
+                        {ex.category}
+                      </span>
+                    </button>
+                  );
+                })}
+                {addExerciseCandidates.length === 0 && (
+                  <div className="text-center py-8 text-zinc-500 text-xs font-bold">
+                    {addExerciseSearch ? 'No available exercises match that search.' : 'All catalog exercises already listed!'}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Visual Discard Confirmation Dialog Modal */}
@@ -917,6 +1022,20 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={showEmptyFinishConfirm}
+        title="No sets completed"
+        eyebrow="Finish workout"
+        message="No sets are marked complete yet. Save this workout anyway?"
+        confirmLabel="Save Anyway"
+        cancelLabel="Keep Logging"
+        onConfirm={() => {
+          setShowEmptyFinishConfirm(false);
+          finalizeSession();
+        }}
+        onCancel={() => setShowEmptyFinishConfirm(false)}
+      />
 
     </div>
   );

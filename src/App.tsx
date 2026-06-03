@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
-import { Routine, Exercise, WorkoutSession, WorkoutSettings } from './types';
+import { useRef, useState, useEffect } from 'react';
+import { Routine, Exercise, PlannedExercise, WorkoutSession, WorkoutSettings, BodyWeightEntry, ManualPRRecord, ThemeHue, LanguageCode } from './types';
 import { EXERCISES } from './data/exercises';
+import { DEFAULT_ROUTINES } from './data/routines';
 import { Dashboard } from './components/Dashboard';
 import { ActiveSession } from './components/ActiveSession';
 import { ExerciseDetail } from './components/ExerciseDetail';
@@ -13,7 +14,133 @@ import { HistoryLog } from './components/HistoryLog';
 import { ProgressStats } from './components/ProgressStats';
 import { PoseIcon } from './components/PoseIcon';
 import { ConfirmModal } from './components/ConfirmModal';
-import { ClipboardList, History, Trophy, TrendingUp, Settings, Calendar, Award, CheckCircle, Flame, Dumbbell, Sparkles, ArrowRight, Trash2, X, Play } from 'lucide-react';
+import { OnboardingTour, ONBOARDING_STEP_COUNT } from './components/OnboardingTour';
+import { resolveDistanceSystem } from './data/unit-traits';
+import { createTranslator, LANGUAGE_OPTIONS } from './data/localization';
+import { ClipboardList, History, Trophy, TrendingUp, Settings, Calendar, Award, CheckCircle, Flame, Dumbbell, Sparkles, ArrowRight, ChevronRight, ChevronDown, Trash2, X, Play } from 'lucide-react';
+
+const GYM_STORAGE_KEYS = [
+  'gym_exercises',
+  'gym_exercises_version',
+  'gym_routines',
+  'gym_routines_version',
+  'gym_history',
+  'gym_settings',
+  'gym_schedule',
+  'gym_manual_prs',
+  'gym_bodyweight',
+  'gym_active_session_data'
+] as const;
+
+const downloadTextFile = (filename: string, text: string, type: string) => {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
+function safeParse<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    console.warn(`Ignoring corrupt localStorage value for ${key}.`);
+    return fallback;
+  }
+}
+
+const clampWeightIncrement = (value?: number) => {
+  if (!Number.isFinite(value) || !value || value <= 0) return undefined;
+  const snapped = Math.round(value / 0.25) * 0.25;
+  return Math.min(25, Math.max(0.25, Number(snapped.toFixed(2))));
+};
+
+const normalizeSettings = (settings: WorkoutSettings): WorkoutSettings => ({
+  ...settings,
+  distanceUnit: settings.distanceUnit ?? (settings.weightUnit === 'lbs' ? 'mi' : 'km'),
+  autoStartRest: settings.autoStartRest ?? true,
+  language: settings.language ?? 'en',
+  weightIncrement: clampWeightIncrement(settings.weightIncrement),
+});
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+
+const isStringifiedJsonArray = (value: string) => {
+  try {
+    return Array.isArray(JSON.parse(value));
+  } catch {
+    return false;
+  }
+};
+
+const isStringifiedJsonObject = (value: string) => {
+  try {
+    return isRecord(JSON.parse(value));
+  } catch {
+    return false;
+  }
+};
+
+const validateImportValue = (key: typeof GYM_STORAGE_KEYS[number], value: string) => {
+  if (key.endsWith('_version')) return /^\d+$/.test(value);
+  if (key === 'gym_settings' || key === 'gym_schedule' || key === 'gym_manual_prs' || key === 'gym_active_session_data') {
+    return isStringifiedJsonObject(value);
+  }
+  return isStringifiedJsonArray(value);
+};
+
+const ONBOARDING_TAB_SEQUENCE: Array<{
+  tab: 'workout' | 'history' | 'progress' | 'settings';
+  subTab?: 'routines' | 'library';
+}> = [
+  { tab: 'workout', subTab: 'routines' },
+  { tab: 'workout', subTab: 'library' },
+  { tab: 'workout', subTab: 'routines' },
+  { tab: 'history' },
+  { tab: 'progress' },
+  { tab: 'settings' }
+];
+
+const HUE_OPTIONS: Array<{
+  id: ThemeHue;
+  label: string;
+  swatch: string;
+  selected: string;
+}> = [
+  { id: 'violet', label: 'Violet', swatch: 'bg-violet-500', selected: 'border-violet-500 text-violet-200 bg-violet-950/20' },
+  { id: 'emerald', label: 'Emerald', swatch: 'bg-emerald-500', selected: 'border-emerald-500 text-emerald-200 bg-emerald-950/20' },
+  { id: 'rose', label: 'Rose', swatch: 'bg-rose-500', selected: 'border-rose-500 text-rose-200 bg-rose-950/20' },
+  { id: 'sky', label: 'Sky', swatch: 'bg-sky-500', selected: 'border-sky-500 text-sky-200 bg-sky-950/20' },
+  { id: 'amber', label: 'Amber', swatch: 'bg-amber-500', selected: 'border-amber-500 text-amber-200 bg-amber-950/20' },
+];
+
+// iOS-style sliding toggle — replaces the small checkbox for on/off settings.
+function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange: (next: boolean) => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-200 focus:outline-none ${
+        checked ? 'bg-[rgb(var(--accent-600))] border-[rgb(var(--accent-500))]' : 'bg-zinc-800 border-zinc-700'
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${
+          checked ? 'translate-x-5' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  );
+}
 
 export default function App() {
   // Screen views: 'dashboard' (shows bottom tabs), 'active-session', or 'exercise-detail'
@@ -27,12 +154,24 @@ export default function App() {
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [exercisesList, setExercisesList] = useState<Exercise[]>([]);
   const [history, setHistory] = useState<WorkoutSession[]>([]);
+  const [bodyWeightLog, setBodyWeightLog] = useState<BodyWeightEntry[]>([]);
+  const [manualPRs, setManualPRs] = useState<Record<string, ManualPRRecord>>(() => {
+    try {
+      const stored = localStorage.getItem('gym_manual_prs');
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
   const [settings, setSettings] = useState<WorkoutSettings>({
     weightUnit: 'kg',
+    distanceUnit: 'km',
     defaultRestDuration: 90,
     soundEnabled: true,
     vibrationEnabled: true,
-    maxWorkoutDuration: 120
+    autoStartRest: true,
+    maxWorkoutDuration: 120,
+    language: 'en'
   });
 
   const [autologMessage, setAutologMessage] = useState<string | null>(null);
@@ -44,12 +183,72 @@ export default function App() {
   // Active items mapping
   const [activeRoutine, setActiveRoutine] = useState<Routine | null>(null);
   const [activeDetailEx, setActiveDetailEx] = useState<Exercise | null>(null);
+  // When the detail sheet is opened from a routine's planned card, this carries
+  // which routine + exercise so the sheet can edit that plan's targets in place.
+  const [detailPlannedCtx, setDetailPlannedCtx] = useState<{ routineId: string; exerciseId: string } | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
   const [lastLoggedSession, setLastLoggedSession] = useState<WorkoutSession | null>(null);
   const [selectedRoutineId, setSelectedRoutineId] = useState<string>('');
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState(0);
+  const importFileRef = useRef<HTMLInputElement | null>(null);
   const [resumableRoutine, setResumableRoutine] = useState<Routine | null>(null);
   const [resumeElapsed, setResumeElapsed] = useState<number>(0);
+  const [highlightRoutineId, setHighlightRoutineId] = useState<string | null>(null);
+  const effectiveDistanceUnit = resolveDistanceSystem(settings.distanceUnit, settings.weightUnit);
+  const measurementPreset = settings.weightUnit === 'kg' && effectiveDistanceUnit === 'km'
+    ? 'metric'
+    : settings.weightUnit === 'lbs' && effectiveDistanceUnit === 'mi'
+      ? 'imperial'
+      : 'custom';
+  const distanceUnitLabel = effectiveDistanceUnit === 'mi' ? 'miles' : 'kilometres';
+  const accentHue = settings.accentHue || 'violet';
+  const language = settings.language || 'en';
+  const t = createTranslator(language);
+
+  useEffect(() => {
+    document.documentElement.dataset.accent = accentHue;
+  }, [accentHue]);
+
+  const applyOnboardingStep = (index: number) => {
+    const safeIndex = Math.min(Math.max(index, 0), ONBOARDING_STEP_COUNT - 1);
+    const target = ONBOARDING_TAB_SEQUENCE[safeIndex] || ONBOARDING_TAB_SEQUENCE[0];
+    setCurrentScreen('dashboard');
+    setActiveTab(target.tab);
+    if (target.subTab) setDashboardSubTab(target.subTab);
+    setOnboardingStep(safeIndex);
+    window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 60);
+  };
+
+  const startOnboarding = () => {
+    setShowOnboarding(true);
+    applyOnboardingStep(0);
+  };
+
+  useEffect(() => {
+    if (!localStorage.getItem('gym_onboarding_seen') && !localStorage.getItem('gym_active_session_data')) {
+      startOnboarding();
+    }
+  }, []);
+
+  const handleDismissOnboarding = () => {
+    localStorage.setItem('gym_onboarding_seen', 'true');
+    setShowOnboarding(false);
+  };
+
+  const handleNextOnboarding = () => {
+    if (onboardingStep >= ONBOARDING_STEP_COUNT - 1) {
+      handleDismissOnboarding();
+      return;
+    }
+    applyOnboardingStep(onboardingStep + 1);
+  };
+
+  const handleBackOnboarding = () => {
+    applyOnboardingStep(onboardingStep - 1);
+  };
 
   // Sync default selected workout blueprint
   useEffect(() => {
@@ -61,25 +260,20 @@ export default function App() {
   // 1. Load starting database from localStorage or seed initial defaults
   useEffect(() => {
     // a. Exercises Custom seeds.
-    //    Bumped to v2 after the kettlebell-swing / hyperextension category
-    //    fix — existing installs need their built-in entries refreshed.
+    //    Bumped to v3 after the expanded catalogue + category audit;
+    //    existing installs need their built-in entries refreshed.
     //    Any custom-* exercises the user created are preserved.
-    const EXERCISES_SEED_VERSION = 2;
+    const EXERCISES_SEED_VERSION = 3;
     const storedVersion = parseInt(localStorage.getItem('gym_exercises_version') || '0', 10);
-    const storedExercises = localStorage.getItem('gym_exercises');
+    const storedExercises = safeParse<Exercise[] | null>('gym_exercises', null);
 
     if (storedExercises && storedVersion >= EXERCISES_SEED_VERSION) {
-      setExercisesList(JSON.parse(storedExercises));
+      setExercisesList(storedExercises);
     } else {
       // Preserve user-created custom exercises while re-seeding the built-ins.
       let preservedCustoms: Exercise[] = [];
       if (storedExercises) {
-        try {
-          const prev = JSON.parse(storedExercises) as Exercise[];
-          preservedCustoms = prev.filter(e => typeof e.id === 'string' && e.id.startsWith('custom-'));
-        } catch {
-          /* fall through to fresh seed */
-        }
+        preservedCustoms = storedExercises.filter(e => typeof e.id === 'string' && e.id.startsWith('custom-'));
       }
       const merged: Exercise[] = [...EXERCISES, ...preservedCustoms];
       setExercisesList(merged);
@@ -88,19 +282,18 @@ export default function App() {
     }
 
     // b. Workout Settings Setup
-    const storedSettings = localStorage.getItem('gym_settings');
+    const storedSettings = safeParse<Partial<WorkoutSettings> | null>('gym_settings', null);
     if (storedSettings) {
-      const parsed = JSON.parse(storedSettings);
-      setSettings(prev => ({
+      setSettings(prev => normalizeSettings({
         ...prev,
-        ...parsed
+        ...storedSettings,
       }));
     }
 
     // c. Scheduled Planner Days
-    const storedSchedule = localStorage.getItem('gym_schedule');
+    const storedSchedule = safeParse<Record<string, string> | null>('gym_schedule', null);
     if (storedSchedule) {
-      setPlannedSchedule(JSON.parse(storedSchedule));
+      setPlannedSchedule(storedSchedule);
     } else {
       // Default standard planner
       const initialSched = {
@@ -113,54 +306,34 @@ export default function App() {
     }
 
     // d. Historical gym sessions
-    const storedHistory = localStorage.getItem('gym_history');
+    const storedHistory = safeParse<WorkoutSession[] | null>('gym_history', null);
     if (storedHistory) {
-      setHistory(JSON.parse(storedHistory));
+      setHistory(storedHistory);
+    }
+
+    // d2. Body-weight log (progress tracking)
+    const storedBodyWeight = safeParse<BodyWeightEntry[] | null>('gym_bodyweight', null);
+    if (storedBodyWeight) {
+      setBodyWeightLog(storedBodyWeight);
     }
 
     // e. Workout routines
-    const storedRoutines = localStorage.getItem('gym_routines');
-    if (storedRoutines) {
-      setRoutines(JSON.parse(storedRoutines));
+    const ROUTINES_SEED_VERSION = 1;
+    const storedRoutines = safeParse<Routine[] | null>('gym_routines', null);
+    const storedRoutinesVersion = parseInt(localStorage.getItem('gym_routines_version') || '0', 10);
+
+    if (storedRoutines && storedRoutinesVersion >= ROUTINES_SEED_VERSION) {
+      setRoutines(storedRoutines);
     } else {
-      // Seed robust default workout plans aligned with PoseIcons
-      const defaults: Routine[] = [
-        {
-          id: 'push-day',
-          name: 'Hypertrophy Push Day',
-          exercises: [
-            { id: 'bp-1', exerciseId: 'bench-press', sets: 4, reps: '6-10' },
-            { id: 'op-1', exerciseId: 'overhead-press', sets: 3, reps: '8-10' },
-            { id: 'dp-1', exerciseId: 'dip', sets: 3, reps: '8-12' },
-            { id: 'lr-1', exerciseId: 'lateral-raise', sets: 4, reps: '12-15' },
-            { id: 'cf-1', exerciseId: 'chest-fly', sets: 3, reps: '10-12' }
-          ]
-        },
-        {
-          id: 'pull-day',
-          name: 'Power Back & Arms',
-          exercises: [
-            { id: 'pu-1', exerciseId: 'pull-up', sets: 4, reps: '6-10' },
-            { id: 'rw-1', exerciseId: 'row', sets: 4, reps: '6-10' },
-            { id: 'pd-1', exerciseId: 'pulldown', sets: 3, reps: '8-12' },
-            { id: 'cl-1', exerciseId: 'curl', sets: 3, reps: '10-12' },
-            { id: 'fp-1', exerciseId: 'face-pull', sets: 3, reps: '12-15' }
-          ]
-        },
-        {
-          id: 'leg-day',
-          name: 'Leg Complex & Glutes',
-          exercises: [
-            { id: 'sq-1', exerciseId: 'squat', sets: 4, reps: '6-10' },
-            { id: 'dl-1', exerciseId: 'deadlift', sets: 3, reps: '5' },
-            { id: 'ht-1', exerciseId: 'hip-thrust', sets: 4, reps: '8-12' },
-            { id: 'le-1', exerciseId: 'leg-extension', sets: 3, reps: '12-15' },
-            { id: 'cr-1', exerciseId: 'calf-raise', sets: 3, reps: '15-20' }
-          ]
-        }
-      ];
-      setRoutines(defaults);
-      localStorage.setItem('gym_routines', JSON.stringify(defaults));
+      let preservedCustoms: Routine[] = [];
+      if (storedRoutines) {
+        preservedCustoms = storedRoutines.filter(r => typeof r.id === 'string' && r.id.startsWith('routine-'));
+      }
+
+      const merged = [...DEFAULT_ROUTINES, ...preservedCustoms];
+      setRoutines(merged);
+      localStorage.setItem('gym_routines', JSON.stringify(merged));
+      localStorage.setItem('gym_routines_version', String(ROUTINES_SEED_VERSION));
     }
   }, []);
 
@@ -276,8 +449,9 @@ export default function App() {
   };
 
   const handleUpdateSettings = (updated: WorkoutSettings) => {
-    setSettings(updated);
-    localStorage.setItem('gym_settings', JSON.stringify(updated));
+    const normalized = normalizeSettings(updated);
+    setSettings(normalized);
+    localStorage.setItem('gym_settings', JSON.stringify(normalized));
   };
 
   const handleScheduleRoutine = (day: string, routineId: string) => {
@@ -291,6 +465,103 @@ export default function App() {
     const updated = history.filter(s => s.id !== id);
     setHistory(updated);
     localStorage.setItem('gym_history', JSON.stringify(updated));
+  };
+
+  // Persist body-weight log changes (add / remove entries)
+  const handleUpdateBodyWeight = (updated: BodyWeightEntry[]) => {
+    setBodyWeightLog(updated);
+    localStorage.setItem('gym_bodyweight', JSON.stringify(updated));
+  };
+
+  const handleSaveManualPr = (exerciseId: string, value: number, reps: number, unit: string) => {
+    const updated = {
+      ...manualPRs,
+      [exerciseId]: reps > 0 ? { value, reps, unit } : { value, unit }
+    };
+    setManualPRs(updated);
+    localStorage.setItem('gym_manual_prs', JSON.stringify(updated));
+  };
+
+  const handleExportData = () => {
+    const bundle = {
+      app: 'GymBuddy-2',
+      exportedAt: new Date().toISOString(),
+      data: Object.fromEntries(GYM_STORAGE_KEYS.map(key => [key, localStorage.getItem(key)]))
+    };
+    downloadTextFile(
+      `gymbuddy-data-${new Date().toISOString().slice(0, 10)}.json`,
+      JSON.stringify(bundle, null, 2),
+      'application/json'
+    );
+  };
+
+  const handleImportData = async (file: File) => {
+    const raw = await file.text();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error('Import failed: the file is not valid JSON.');
+    }
+
+    if (!isRecord(parsed) || !isRecord(parsed.data)) {
+      throw new Error('Invalid GymBuddy data bundle.');
+    }
+
+    Object.entries(parsed.data).forEach(([key, value]) => {
+      if (!GYM_STORAGE_KEYS.includes(key as typeof GYM_STORAGE_KEYS[number])) return;
+      if (value === null) {
+        localStorage.removeItem(key);
+        return;
+      }
+      if (typeof value !== 'string') {
+        throw new Error(`Invalid value for ${key}.`);
+      }
+      if (!validateImportValue(key as typeof GYM_STORAGE_KEYS[number], value)) {
+        throw new Error(`Invalid data shape for ${key}.`);
+      }
+      localStorage.setItem(key, value);
+    });
+
+    window.location.reload();
+  };
+
+  const handleExportExerciseCsv = () => {
+    const rows = [
+      ['sessionId', 'date', 'routine', 'exerciseId', 'exerciseName', 'set', 'completed', 'weight', 'reps', 'distanceKm', 'durationMinutes']
+    ];
+    history
+      .slice()
+      .sort((a, b) => a.startTime - b.startTime)
+      .forEach(session => {
+        session.exercises.forEach(logged => {
+          const ex = exercisesList.find(item => item.id === logged.exerciseId);
+          logged.sets.forEach((set, index) => {
+            rows.push([
+              session.id,
+              new Date(session.startTime).toISOString(),
+              session.routineName,
+              logged.exerciseId,
+              ex?.name || logged.exerciseId,
+              String(index + 1),
+              set.completed ? 'yes' : 'no',
+              String(set.weight ?? ''),
+              String(set.reps ?? ''),
+              set.distance != null ? String(set.distance) : '',
+              set.durationMinutes != null ? String(set.durationMinutes) : ''
+            ]);
+          });
+        });
+      });
+
+    const csv = rows
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    downloadTextFile(
+      `gymbuddy-exercise-history-${new Date().toISOString().slice(0, 10)}.csv`,
+      csv,
+      'text/csv'
+    );
   };
 
   // Launch Active Workout Workout Session
@@ -320,10 +591,39 @@ export default function App() {
     }
   };
 
-  // Open specs sheet
-  const handleOpenDetailEx = (ex: Exercise) => {
+  // Open specs sheet. An optional planned context lets the sheet also edit the
+  // exercise's targets within a specific routine (tapped from a planned card).
+  const handleOpenDetailEx = (ex: Exercise, ctx?: { routineId: string; exerciseId: string }) => {
     setActiveDetailEx(ex);
+    setDetailPlannedCtx(ctx || null);
     setCurrentScreen('exercise-detail');
+  };
+
+  // Patch a planned exercise's targets (sets/reps/unit/working weight) in place
+  // from the detail sheet, persisting straight back to the owning routine.
+  const handleUpdatePlannedConfig = (patch: Partial<PlannedExercise>) => {
+    if (!detailPlannedCtx) return;
+    const { routineId, exerciseId } = detailPlannedCtx;
+    const updated = routines.map(r =>
+      r.id === routineId
+        ? { ...r, exercises: r.exercises.map(pe => (pe.exerciseId === exerciseId ? { ...pe, ...patch } : pe)) }
+        : r
+    );
+    handleUpdateRoutines(updated);
+  };
+
+  const handleRemovePlannedConfig = () => {
+    if (!detailPlannedCtx) return;
+    const { routineId, exerciseId } = detailPlannedCtx;
+    const updated = routines.map(r =>
+      r.id === routineId
+        ? { ...r, exercises: r.exercises.filter(pe => pe.exerciseId !== exerciseId) }
+        : r
+    );
+    handleUpdateRoutines(updated);
+    setDetailPlannedCtx(null);
+    setCurrentScreen('dashboard');
+    setActiveTab('workout');
   };
 
   // Determine current active scheduled day
@@ -335,6 +635,25 @@ export default function App() {
   };
 
   const activeScheduled = getTodayPlannedRoutine();
+  const selectedWorkoutRoutine = routines.find(r => r.id === selectedRoutineId) || activeScheduled || routines[0];
+  const selectedWorkoutHasExercises = !!selectedWorkoutRoutine && selectedWorkoutRoutine.exercises.length > 0;
+
+  // Tapping the "Next Scheduled Routine" card selects that routine, drops the
+  // dashboard onto the routines sub-tab, and scrolls its planned-exercise
+  // config into view — a preview before committing to "Start".
+  const handlePreviewScheduledRoutine = () => {
+    if (!activeScheduled) return;
+    setSelectedRoutineId(activeScheduled.id);
+    setDashboardSubTab('routines');
+    // Wait a frame for the routines view + selection to render, then reveal it.
+    setTimeout(() => {
+      document
+        .getElementById(`routine-box-${activeScheduled.id}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setHighlightRoutineId(activeScheduled.id);
+      window.setTimeout(() => setHighlightRoutineId(null), 550);
+    }, 80);
+  };
 
   const formatResumeTime = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
@@ -343,10 +662,10 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 flex flex-col font-sans relative antialiased selection:bg-violet-600 selection:text-white" id="gym-notepad-app">
+    <div className="min-h-screen bg-black text-zinc-100 flex flex-col font-sans relative antialiased selection:bg-[rgb(var(--accent-600))] selection:text-white" id="gym-notepad-app">
       
       {/* BACKGROUND DECORATIVE GLOWS */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-lg h-96 bg-gradient-to-b from-violet-600/10 via-indigo-600/5 to-transparent blur-3xl rounded-full -z-10 pointer-events-none" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-lg h-96 bg-gradient-to-b from-[rgb(var(--accent-600)/0.1)] via-[rgb(var(--accent-500)/0.05)] to-transparent blur-3xl rounded-full -z-10 pointer-events-none" />
 
       {/* VIEW CONDITIONAL RENDERING */}
 
@@ -365,7 +684,21 @@ export default function App() {
       {currentScreen === 'exercise-detail' && activeDetailEx && (
         <ExerciseDetail
           exercise={activeDetailEx}
-          onBack={() => setCurrentScreen('dashboard')}
+          plannedConfig={
+            detailPlannedCtx
+              ? routines
+                  .find(r => r.id === detailPlannedCtx.routineId)
+                  ?.exercises.find(pe => pe.exerciseId === detailPlannedCtx.exerciseId)
+              : undefined
+          }
+          routineName={detailPlannedCtx ? routines.find(r => r.id === detailPlannedCtx.routineId)?.name : undefined}
+          onUpdatePlannedConfig={detailPlannedCtx ? handleUpdatePlannedConfig : undefined}
+          onRemovePlannedConfig={detailPlannedCtx ? handleRemovePlannedConfig : undefined}
+          manualPRs={manualPRs}
+          onSaveManualPr={handleSaveManualPr}
+          showExerciseImage={settings.showExerciseImage ?? false}
+          showHelpText={settings.showHelpText ?? true}
+          onBack={() => { setCurrentScreen('dashboard'); setDetailPlannedCtx(null); }}
           onEdit={(updatedEx) => {
             const updated = exercisesList.map(e => e.id === updatedEx.id ? updatedEx : e);
             handleUpdateExercises(updated);
@@ -379,20 +712,21 @@ export default function App() {
           {/* Header Dashboard panel strictly aligned with Screen 1 */}
           <header className="px-6 pt-7 pb-4 max-w-lg mx-auto w-full flex items-center justify-between sticky top-0 bg-black/80 backdrop-blur z-20">
             <div>
-              <span className="text-[10px] font-black tracking-widest text-violet-500 uppercase">AESTHETIC FITNESS LOG</span>
+              <span className="text-[10px] font-black tracking-widest text-[rgb(var(--accent-500))] uppercase">{t('app.brand')}</span>
               <h1 className="text-2xl font-black text-white tracking-tight">
-                {activeTab === 'workout' && 'Workout Plan'}
-                {activeTab === 'history' && 'Activity Logs'}
-                {activeTab === 'progress' && 'Performance Tracker'}
-                {activeTab === 'settings' && 'User Settings'}
+                {activeTab === 'workout' && t('screen.workout')}
+                {activeTab === 'history' && t('screen.history')}
+                {activeTab === 'progress' && t('screen.progress')}
+                {activeTab === 'settings' && t('screen.settings')}
               </h1>
             </div>
 
             {/* Scheduler event configuration */}
             <button
               onClick={() => setShowScheduleModal(true)}
-              className="p-3 bg-zinc-900/60 hover:bg-zinc-800 border border-zinc-800 rounded-2xl text-zinc-300 hover:text-violet-400 shadow shadow-black transition-all"
+              className="p-3 bg-zinc-900/60 hover:bg-zinc-800 border border-zinc-800 rounded-2xl text-zinc-300 hover:text-[rgb(var(--accent-400))] shadow shadow-black transition-all"
               title="Configure weekly planner schedule"
+              aria-label="Configure weekly planner schedule"
             >
               <Calendar className="w-5 h-5" />
             </button>
@@ -403,17 +737,25 @@ export default function App() {
             {activeTab === 'workout' && activeScheduled && (
               <div className="space-y-6">
                 {/* Active day indicator badge */}
-                <div className="bg-gradient-to-r from-violet-950/20 to-zinc-900/40 border border-violet-900/30 p-4 rounded-3xl flex items-center justify-between shadow-lg">
-                  <div className="space-y-0.5">
-                    <span className="text-[9px] font-extrabold text-violet-400 uppercase tracking-widest block">Next Scheduled Routine</span>
-                    <h3 className="text-sm font-bold text-white tracking-wide">{activeScheduled.name}</h3>
-                  </div>
+                <div className="bg-gradient-to-r from-[rgb(var(--accent-950)/0.2)] to-zinc-900/40 border border-[rgb(var(--accent-900)/0.3)] p-4 rounded-3xl flex items-center justify-between gap-3 shadow-lg">
+                  <button
+                    onClick={handlePreviewScheduledRoutine}
+                    className="text-left space-y-0.5 min-w-0 flex-1 group cursor-pointer"
+                    title="Preview this routine's planned exercises"
+                  >
+                    <span className="text-[9px] font-extrabold text-[rgb(var(--accent-300))] uppercase tracking-widest block">Next Scheduled Routine</span>
+                    <h3 className="text-sm font-bold text-white tracking-wide inline-flex items-center gap-1 max-w-full group-hover:text-[rgb(var(--accent-200))] transition-colors">
+                      <span className="truncate">{activeScheduled.name}</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-[rgb(var(--accent-300))] shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                    </h3>
+                  </button>
                   {!resumableRoutine && (
                     <button
                       onClick={() => handleStartWorkout(activeScheduled)}
-                      className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 rounded-xl text-xs font-bold text-white shadow shadow-violet-950/40 active:scale-95 transition-all"
+                      disabled={activeScheduled.exercises.length === 0}
+                      className="flex items-center gap-1.5 px-4 py-2.5 shrink-0 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-500))] hover:from-[rgb(var(--accent-500))] rounded-xl text-xs font-bold text-white shadow shadow-black/30 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Start <ArrowRight className="w-3.5 h-3.5" />
+                      {activeScheduled.exercises.length === 0 ? t('startWorkout.empty') : 'Start'} <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
@@ -429,11 +771,14 @@ export default function App() {
                   onUpdateRoutines={handleUpdateRoutines}
                   onUpdateExercises={handleUpdateExercises}
                   onUpdateSettings={handleUpdateSettings}
+                  manualPRs={manualPRs}
+                  onSaveManualPr={handleSaveManualPr}
                   onOpenCalendarPlanner={() => setShowScheduleModal(true)}
                   selectedRoutineId={selectedRoutineId}
                   onSelectRoutineId={setSelectedRoutineId}
                   activeTab={dashboardSubTab}
                   onActiveTabChange={setDashboardSubTab}
+                  highlightRoutineId={highlightRoutineId}
                 />
               </div>
             )}
@@ -444,6 +789,7 @@ export default function App() {
                 exercisesList={exercisesList}
                 weightUnit={settings.weightUnit}
                 onDeleteSession={handleDeleteSession}
+                showHelpText={settings.showHelpText ?? true}
               />
             )}
 
@@ -452,55 +798,78 @@ export default function App() {
                 history={history}
                 exercisesList={exercisesList}
                 weightUnit={settings.weightUnit}
+                distanceUnit={settings.distanceUnit}
+                bodyWeightLog={bodyWeightLog}
+                onUpdateBodyWeight={handleUpdateBodyWeight}
+                showHelpText={settings.showHelpText ?? true}
               />
             )}
 
             {activeTab === 'settings' && (
-              <div className="space-y-6 max-w-lg mx-auto w-full pb-12">
+              <div className="space-y-5 max-w-lg mx-auto w-full pb-12">
                 <div className="space-y-1">
-                  <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Log Preferences</h2>
-                  <span className="text-[10px] text-zinc-400 font-medium font-sans">Fine-tune training variables</span>
+                  <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">{t('settings.preferences')}</h2>
+                  <span className="text-[10px] text-zinc-400 font-medium font-sans">{t('settings.preferences.subtitle')}</span>
                 </div>
 
-                <div className="bg-zinc-900/30 border border-zinc-900 rounded-3xl p-5 space-y-5 divide-y divide-zinc-900/60">
-                  {/* 1. Unit layout toggles */}
-                  <div className="flex items-center justify-between pb-4">
+                {/* ── UNITS ───────────────────────────────────────────────── */}
+                <div className="bg-zinc-900/30 border border-zinc-900 rounded-3xl p-5 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Dumbbell className="w-4 h-4 text-[rgb(var(--accent-400))]" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t('settings.units')}</h3>
+                  </div>
+
+                  <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-sm font-bold text-zinc-200 block font-sans">Weight Unit</span>
-                      <span className="text-[10px] text-zinc-500 block">Choose globally displayed unit</span>
+                      <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.measurementSystem')}</span>
+                      <span className="text-[10px] text-zinc-500 block">{t('settings.measurementSystem.help')}</span>
+                      {measurementPreset === 'custom' && (
+                        <span className="text-[9px] text-[rgb(var(--accent-400))] font-black uppercase tracking-widest">Custom: {settings.weightUnit} + {effectiveDistanceUnit}</span>
+                      )}
                     </div>
-                    
-                    <div className="flex bg-zinc-950 p-1 border border-zinc-800 rounded-xl text-xs">
+
+                    <div className="flex bg-zinc-950 p-1 border border-zinc-800 rounded-xl text-xs shrink-0">
                       <button
-                        onClick={() => handleUpdateSettings({ ...settings, weightUnit: 'kg' })}
+                        onClick={() => handleUpdateSettings({ ...settings, weightUnit: 'kg', distanceUnit: 'km' })}
                         className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
-                          settings.weightUnit === 'kg' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
+                          measurementPreset === 'metric' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
                         }`}
                       >
-                        KG
+                        {t('settings.metric')}
                       </button>
                       <button
-                        onClick={() => handleUpdateSettings({ ...settings, weightUnit: 'lbs' })}
+                        onClick={() => handleUpdateSettings({ ...settings, weightUnit: 'lbs', distanceUnit: 'mi' })}
                         className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
-                          settings.weightUnit === 'lbs' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
+                          measurementPreset === 'imperial' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'
                         }`}
                       >
-                        LBS
+                        {t('settings.imperial')}
                       </button>
                     </div>
                   </div>
 
-                  {/* 2. Rest timer variables */}
-                  <div className="flex items-center justify-between py-4">
+                  <p className="text-[10px] text-zinc-600 leading-relaxed border-t border-zinc-900/60 pt-3">
+                    {t('settings.units.note', { weightUnit: settings.weightUnit, distanceUnit: distanceUnitLabel })}
+                  </p>
+                </div>
+
+                {/* ── WORKOUT BEHAVIOUR ───────────────────────────────────── */}
+                <div className="bg-zinc-900/30 border border-zinc-900 rounded-3xl p-5 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Play className="w-4 h-4 text-[rgb(var(--accent-400))] fill-current" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t('settings.workoutBehaviour')}</h3>
+                  </div>
+
+                  <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-sm font-bold text-zinc-200 block font-sans">Rest Timer Countdown</span>
-                      <span className="text-[10px] text-zinc-500 block">Suggested duration between completed sets</span>
+                      <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.restTimer')}</span>
+                      <span className="text-[10px] text-zinc-500 block">{t('settings.restTimer.help')}</span>
                     </div>
-                    
+
                     <select
                       value={settings.defaultRestDuration}
                       onChange={(e) => handleUpdateSettings({ ...settings, defaultRestDuration: parseInt(e.target.value) })}
-                      className="bg-zinc-950 border border-zinc-800 text-xs text-white px-2.5 py-1.5 rounded-xl focus:outline-none"
+                      className="bg-zinc-950 border border-zinc-800 text-xs text-white px-2.5 py-1.5 rounded-xl focus:outline-none focus:border-[rgb(var(--accent-600))] shrink-0"
                     >
                       <option value={45}>45 seconds</option>
                       <option value={60}>60 seconds</option>
@@ -510,72 +879,301 @@ export default function App() {
                     </select>
                   </div>
 
-                  {/* Max Workout Session Duration Limiter */}
-                  <div className="flex items-center justify-between py-4 border-t border-zinc-900/60 font-sans">
+                  <div className="flex items-center justify-between border-t border-zinc-900/60 pt-4">
                     <div>
-                      <span className="text-sm font-bold text-zinc-200 block">Max Session Duration Limit</span>
-                      <span className="text-[10px] text-zinc-500 block">Autologs session to prevent forgot-to-close runs</span>
+                      <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.autoStartRest')}</span>
+                      <span className="text-[10px] text-zinc-500 block">{t('settings.autoStartRest.help')}</span>
                     </div>
-                    
-                    <select
-                      value={settings.maxWorkoutDuration || 120}
-                      onChange={(e) => handleUpdateSettings({ ...settings, maxWorkoutDuration: parseInt(e.target.value) })}
-                      className="bg-zinc-950 border border-zinc-800 text-xs text-white px-2.5 py-1.5 rounded-xl focus:outline-none focus:border-violet-600"
-                    >
-                      <option value={45}>45 minutes</option>
-                      <option value={60}>1 hour</option>
-                      <option value={90}>1.5 hours</option>
-                      <option value={120}>2 hours</option>
-                      <option value={180}>3 hours</option>
-                      <option value={240}>4 hours</option>
-                    </select>
+                    <ToggleSwitch
+                      label={t('settings.autoStartRest')}
+                      checked={settings.autoStartRest ?? true}
+                      onChange={(next) => handleUpdateSettings({ ...settings, autoStartRest: next })}
+                    />
                   </div>
 
-                  {/* 3. Feedback indicators */}
-                  <div className="space-y-4 pt-4">
-                    <span className="text-xs font-bold uppercase text-zinc-500 tracking-widest font-sans">Sound & Vibration Feedback</span>
-                    
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-xs text-zinc-300 block font-semibold">Sound Alerts</span>
-                        <span className="text-[10px] text-zinc-500 block">Chime at completed rest timers</span>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={settings.soundEnabled}
-                        onChange={(e) => handleUpdateSettings({ ...settings, soundEnabled: e.target.checked })}
-                        className="rounded border-zinc-800 text-violet-600 focus:ring-violet-600 bg-zinc-950 w-4 h-4 cursor-pointer"
-                      />
+                  <div className="flex items-center justify-between border-t border-zinc-900/60 pt-4">
+                    <div>
+                      <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.soundAlerts')}</span>
+                      <span className="text-[10px] text-zinc-500 block">{t('settings.soundAlerts.help')}</span>
                     </div>
+                    <ToggleSwitch
+                      label={t('settings.soundAlerts')}
+                      checked={settings.soundEnabled}
+                      onChange={(next) => handleUpdateSettings({ ...settings, soundEnabled: next })}
+                    />
+                  </div>
 
-                    <div className="flex items-center justify-between font-sans">
-                      <div>
-                        <span className="text-xs text-zinc-300 block font-semibold">Vibrational Alerts</span>
-                        <span className="text-[10px] text-zinc-500 block">Haptic feedback on checklist ticking</span>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={settings.vibrationEnabled}
-                        onChange={(e) => handleUpdateSettings({ ...settings, vibrationEnabled: e.target.checked })}
-                        className="rounded border-zinc-800 text-violet-600 focus:ring-violet-600 bg-zinc-950 w-4 h-4 cursor-pointer"
-                      />
+                  <div className="flex items-center justify-between border-t border-zinc-900/60 pt-4">
+                    <div>
+                      <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.vibrationAlerts')}</span>
+                      <span className="text-[10px] text-zinc-500 block">{t('settings.vibrationAlerts.help')}</span>
                     </div>
+                    <ToggleSwitch
+                      label={t('settings.vibrationAlerts')}
+                      checked={settings.vibrationEnabled}
+                      onChange={(next) => handleUpdateSettings({ ...settings, vibrationEnabled: next })}
+                    />
                   </div>
                 </div>
 
-                {/* Database clear variables */}
+                {/* ── DISPLAY ─────────────────────────────────────────────── */}
+                <div className="bg-zinc-900/30 border border-zinc-900 rounded-3xl p-5 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-[rgb(var(--accent-400))]" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t('settings.display')}</h3>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.accentHue')}</span>
+                      <span className="text-[10px] text-zinc-500 block">{t('settings.accentHue.help')}</span>
+                    </div>
+                    <div className="grid grid-cols-5 gap-2">
+                      {HUE_OPTIONS.map(option => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => handleUpdateSettings({ ...settings, accentHue: option.id })}
+                          className={`rounded-xl border px-1.5 py-2 text-[9px] font-black uppercase tracking-wider transition flex flex-col items-center gap-1 ${
+                            accentHue === option.id
+                              ? option.selected
+                              : 'border-zinc-800 bg-zinc-950 text-zinc-500 hover:text-zinc-300'
+                          }`}
+                        >
+                          <span className={`w-3 h-3 rounded-full ${option.swatch}`} />
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 border-t border-zinc-900/60 pt-4">
+                    <div>
+                      <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.language')}</span>
+                      <span className="text-[10px] text-zinc-500 block">{t('settings.language.help')}</span>
+                    </div>
+                    <select
+                      value={language}
+                      onChange={(e) => handleUpdateSettings({ ...settings, language: e.target.value as LanguageCode })}
+                      className="bg-zinc-950 border border-zinc-800 text-xs text-white px-2.5 py-1.5 rounded-xl focus:outline-none focus:border-[rgb(var(--accent-600))] shrink-0"
+                    >
+                      {LANGUAGE_OPTIONS.map(option => (
+                        <option key={option.id} value={option.id}>{option.nativeLabel}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.visualizer')}</span>
+                      <span className="text-[10px] text-zinc-500 block">{t('settings.visualizer.help')}</span>
+                    </div>
+                    <ToggleSwitch
+                      label={t('settings.visualizer')}
+                      checked={settings.showExerciseImage ?? false}
+                      onChange={(next) => handleUpdateSettings({ ...settings, showExerciseImage: next })}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 border-t border-zinc-900/60 pt-4">
+                    <div>
+                      <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.helperDescriptions')}</span>
+                      <span className="text-[10px] text-zinc-500 block">{t('settings.helperDescriptions.help')}</span>
+                    </div>
+                    <ToggleSwitch
+                      label={t('settings.helperDescriptions')}
+                      checked={settings.showHelpText ?? true}
+                      onChange={(next) => handleUpdateSettings({ ...settings, showHelpText: next })}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 border-t border-zinc-900/60 pt-4">
+                    <div>
+                      <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.howItWorks')}</span>
+                      <span className="text-[10px] text-zinc-500 block">{t('settings.howItWorks.help')}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={startOnboarding}
+                      className="shrink-0 px-3 py-2 rounded-xl border border-[rgb(var(--accent-500)/0.25)] bg-[rgb(var(--accent-600)/0.12)] text-[10px] font-black uppercase tracking-wider text-[rgb(var(--accent-300))] hover:bg-[rgb(var(--accent-600)/0.20)] hover:text-white transition"
+                    >
+                      {t('settings.replay')}
+                    </button>
+                  </div>
+
+                  <div className="flex items-start gap-2 border-t border-zinc-900/60 pt-4">
+                    <ChevronRight className="w-3.5 h-3.5 text-zinc-700 mt-0.5 shrink-0" />
+                    <p className="text-[10px] text-zinc-600 leading-relaxed">
+                      {t('settings.minimalistNote')}
+                    </p>
+                  </div>
+                </div>
+
+                {/* ── ADVANCED (collapsible) ──────────────────────────────── */}
+                <div className="bg-zinc-900/30 border border-zinc-900 rounded-3xl overflow-hidden">
+                  <button
+                    onClick={() => setShowAdvancedSettings(v => !v)}
+                    className="w-full flex items-center justify-between p-5 text-left hover:bg-zinc-900/30 transition"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Settings className="w-4 h-4 text-[rgb(var(--accent-400))]" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t('settings.advanced')}</h3>
+                    </div>
+                    <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform ${showAdvancedSettings ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {showAdvancedSettings && (
+                    <div className="px-5 pb-5 space-y-4 animate-fade-in">
+                      <div className="flex items-center justify-between border-t border-zinc-900/60 pt-4">
+                        <div className="pr-3">
+                          <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.maxSessionDuration')}</span>
+                          <span className="text-[10px] text-zinc-500 block">{t('settings.maxSessionDuration.help')}</span>
+                        </div>
+
+                        <select
+                          value={settings.maxWorkoutDuration || 120}
+                          onChange={(e) => handleUpdateSettings({ ...settings, maxWorkoutDuration: parseInt(e.target.value) })}
+                          className="bg-zinc-950 border border-zinc-800 text-xs text-white px-2.5 py-1.5 rounded-xl focus:outline-none focus:border-[rgb(var(--accent-600))] shrink-0"
+                        >
+                          <option value={45}>45 minutes</option>
+                          <option value={60}>1 hour</option>
+                          <option value={90}>1.5 hours</option>
+                          <option value={120}>2 hours</option>
+                          <option value={180}>3 hours</option>
+                          <option value={240}>4 hours</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center justify-between border-t border-zinc-900/60 pt-4">
+                        <div className="pr-3">
+                          <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.weightStep')}</span>
+                          <span className="text-[10px] text-zinc-500 block">{t('settings.weightStep.help', { amount: settings.weightUnit === 'lbs' ? '5 lb' : '2.5 kg' })}</span>
+                        </div>
+
+                        <input
+                          type="number"
+                          min={0.25}
+                          max={25}
+                          step="0.25"
+                          value={settings.weightIncrement ?? ''}
+                          onChange={(e) => {
+                            const value = parseFloat(e.target.value);
+                            handleUpdateSettings({
+                              ...settings,
+                              weightIncrement: Number.isFinite(value) && value > 0 ? value : undefined
+                            });
+                          }}
+                          onBlur={(e) => {
+                            const value = parseFloat(e.target.value);
+                            handleUpdateSettings({
+                              ...settings,
+                              weightIncrement: clampWeightIncrement(value)
+                            });
+                          }}
+                          placeholder={settings.weightUnit === 'lbs' ? '5' : '2.5'}
+                          className="w-20 bg-zinc-950 border border-zinc-800 text-xs text-white px-2.5 py-1.5 rounded-xl focus:outline-none focus:border-[rgb(var(--accent-600))] text-center"
+                        />
+                      </div>
+
+                      <div className="border-t border-zinc-900/60 pt-4 space-y-3">
+                        <div>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{t('settings.unitOverrides')}</span>
+                          <p className="text-[10px] text-zinc-500 mt-0.5">{t('settings.unitOverrides.help')}</p>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="pr-3">
+                            <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.weightUnit')}</span>
+                            <span className="text-[10px] text-zinc-500 block">{t('settings.weightUnit.help')}</span>
+                          </div>
+
+                          <select
+                            value={settings.weightUnit}
+                            onChange={(e) => handleUpdateSettings({ ...settings, weightUnit: e.target.value as 'kg' | 'lbs' })}
+                            className="bg-zinc-950 border border-zinc-800 text-xs text-white px-2.5 py-1.5 rounded-xl focus:outline-none focus:border-[rgb(var(--accent-600))] shrink-0"
+                          >
+                            <option value="kg">kg</option>
+                            <option value="lbs">lb</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="pr-3">
+                            <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.distanceUnit')}</span>
+                            <span className="text-[10px] text-zinc-500 block">{t('settings.distanceUnit.help')}</span>
+                          </div>
+
+                          <select
+                            value={effectiveDistanceUnit}
+                            onChange={(e) => handleUpdateSettings({ ...settings, distanceUnit: e.target.value as 'km' | 'mi' })}
+                            className="bg-zinc-950 border border-zinc-800 text-xs text-white px-2.5 py-1.5 rounded-xl focus:outline-none focus:border-[rgb(var(--accent-600))] shrink-0"
+                          >
+                            <option value="km">km</option>
+                            <option value="mi">mi</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-zinc-900/60 pt-4 space-y-3">
+                        <div>
+                          <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.dataPortability')}</span>
+                          <span className="text-[10px] text-zinc-500 block">{t('settings.dataPortability.help')}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={handleExportData}
+                            className="bg-zinc-950 border border-zinc-800 hover:border-[rgb(var(--accent-700))] text-zinc-300 hover:text-white rounded-xl px-2 py-2 text-[9px] font-black uppercase tracking-wider transition"
+                          >
+                            {t('settings.exportData')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => importFileRef.current?.click()}
+                            className="bg-zinc-950 border border-zinc-800 hover:border-[rgb(var(--accent-700))] text-zinc-300 hover:text-white rounded-xl px-2 py-2 text-[9px] font-black uppercase tracking-wider transition"
+                          >
+                            {t('settings.importData')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleExportExerciseCsv}
+                            className="bg-zinc-950 border border-zinc-800 hover:border-[rgb(var(--accent-700))] text-zinc-300 hover:text-white rounded-xl px-2 py-2 text-[9px] font-black uppercase tracking-wider transition"
+                          >
+                            {t('settings.csvHistory')}
+                          </button>
+                        </div>
+                        <input
+                          ref={importFileRef}
+                          type="file"
+                          accept="application/json,.json"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = '';
+                            if (!file) return;
+                            handleImportData(file).catch(err => {
+                              setAutologMessage(err instanceof Error ? err.message : 'Import failed.');
+                            });
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── DANGER ZONE ─────────────────────────────────────────── */}
                 <div className="border border-red-900/30 bg-red-950/10 p-5 rounded-3xl space-y-3">
                   <h4 className="text-xs font-bold text-red-400 tracking-wider uppercase flex items-center gap-2 font-sans">
-                    <Trash2 className="w-4 h-4" /> Danger Zone
+                    <Trash2 className="w-4 h-4" /> {t('settings.dangerZone')}
                   </h4>
                   <p className="text-xs text-zinc-500 leading-relaxed font-sans">
-                    Once cleared, all custom workout blueprints, history logs, and profile records will be permanently erased.
+                    {t('settings.danger.help')}
                   </p>
                   <button
                     onClick={() => setShowWipeConfirm(true)}
                     className="px-4 py-2 bg-red-950 hover:bg-red-900 border border-red-800 text-red-200 text-xs font-bold rounded-xl transition cursor-pointer"
                   >
-                    Wipe Database Logs
+                    {t('settings.eraseAllData')}
                   </button>
                 </div>
               </div>
@@ -590,18 +1188,18 @@ export default function App() {
                   setActiveRoutine(resumableRoutine);
                   setCurrentScreen('active-session');
                 }}
-                className="w-full bg-zinc-950/95 border border-zinc-900 border-l-4 border-l-violet-500 rounded-2xl py-3 px-4 shadow-xl shadow-black/40 flex items-center justify-between gap-3 text-left active:scale-[0.99] transition"
+                className="w-full bg-zinc-950/95 border border-zinc-900 border-l-4 border-l-[rgb(var(--accent-500))] rounded-2xl py-3 px-4 shadow-xl shadow-black/40 flex items-center justify-between gap-3 text-left active:scale-[0.99] transition"
               >
                 <span className="min-w-0 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-violet-500 animate-pulse shrink-0" />
+                  <span className="w-2 h-2 rounded-full bg-[rgb(var(--accent-500))] animate-pulse shrink-0" />
                   <span className="min-w-0 text-xs font-bold text-zinc-200 truncate">
-                    Active workout: {resumableRoutine.name}
+                    {t('activeWorkout', { name: resumableRoutine.name })}
                   </span>
                   <span className="text-zinc-700 shrink-0">•</span>
                   <span className="text-[10px] font-mono font-bold text-zinc-400 shrink-0">{formatResumeTime(resumeElapsed)}</span>
                 </span>
-                <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-violet-300 shrink-0">
-                  Resume <ArrowRight className="w-3 h-3" />
+                <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-[rgb(var(--accent-300))] shrink-0">
+                  {t('resume')} <ArrowRight className="w-3 h-3" />
                 </span>
               </button>
             </div>
@@ -611,20 +1209,20 @@ export default function App() {
             <div className="sticky bottom-16 bg-zinc-950/95 border-b border-t border-zinc-900/60 backdrop-blur-md px-5 py-3 w-full max-w-lg mx-auto z-20 flex gap-2">
               <button
                 onClick={() => {
-                  const targetRoutine = routines.find(r => r.id === selectedRoutineId) || activeScheduled || routines[0];
-                  if (targetRoutine) {
-                    handleStartWorkout(targetRoutine);
+                  if (selectedWorkoutRoutine && selectedWorkoutHasExercises) {
+                    handleStartWorkout(selectedWorkoutRoutine);
                   }
                 }}
-                className="w-full py-4 bg-gradient-to-r from-violet-600 via-indigo-600 to-violet-700 hover:from-violet-500 hover:to-indigo-500 text-white rounded-2xl text-xs font-black tracking-widest shadow-xl flex items-center justify-center gap-3 active:scale-95 duration-200 cursor-pointer uppercase"
+                disabled={!selectedWorkoutHasExercises}
+                className="w-full py-4 bg-gradient-to-r from-[rgb(var(--accent-600))] via-[rgb(var(--accent-500))] to-[rgb(var(--accent-700))] hover:from-[rgb(var(--accent-500))] hover:to-[rgb(var(--accent-600))] text-white rounded-2xl text-xs font-black tracking-widest shadow-xl flex items-center justify-center gap-3 active:scale-95 duration-200 cursor-pointer uppercase disabled:opacity-45 disabled:cursor-not-allowed disabled:active:scale-100"
               >
                 {/* Play icon vertically centered across BOTH lines of the
                     text column on its right. */}
                 <Play className="w-5 h-5 fill-current stroke-0 shrink-0" />
                 <span className="flex flex-col items-center leading-tight gap-0.5">
-                  <span>START WORKOUT</span>
-                  <span className="max-w-[240px] text-[9px] font-bold tracking-normal normal-case text-violet-100/80 truncate">
-                    {(routines.find(r => r.id === selectedRoutineId) || activeScheduled || routines[0])?.name}
+                  <span>{selectedWorkoutHasExercises ? t('startWorkout') : t('startWorkout.empty')}</span>
+                  <span className="max-w-[240px] text-[9px] font-bold tracking-normal normal-case text-[rgb(var(--accent-100)/0.8)] truncate">
+                    {selectedWorkoutRoutine?.name}
                   </span>
                 </span>
               </button>
@@ -635,42 +1233,50 @@ export default function App() {
           <nav id="bottom-bar-nav" className="sticky bottom-0 bg-zinc-950/95 border-t border-zinc-900/80 backdrop-blur z-30 pt-1.5 pb-2.5 px-4 w-full max-w-lg mx-auto flex items-center justify-around h-16">
             <button
               onClick={() => { setActiveTab('workout'); setCurrentScreen('dashboard'); }}
+              aria-label="Workout tab"
+              aria-current={activeTab === 'workout' ? 'page' : undefined}
               className={`flex flex-col items-center justify-center gap-1.5 py-1 text-center flex-1 transition-all ${
-                activeTab === 'workout' ? 'text-violet-400 scale-105 font-bold' : 'text-zinc-500 hover:text-zinc-300'
+                activeTab === 'workout' ? 'text-[rgb(var(--accent-300))] scale-105 font-bold' : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
               <ClipboardList className="w-5 h-5" />
-              <span className="text-[10px] tracking-wide">Workout</span>
+              <span className="text-[10px] tracking-wide">{t('nav.workout')}</span>
             </button>
 
             <button
               onClick={() => { setActiveTab('history'); setCurrentScreen('dashboard'); }}
+              aria-label="History tab"
+              aria-current={activeTab === 'history' ? 'page' : undefined}
               className={`flex flex-col items-center justify-center gap-1.5 py-1 text-center flex-1 transition-all ${
-                activeTab === 'history' ? 'text-violet-400 scale-105 font-bold' : 'text-zinc-500 hover:text-zinc-300'
+                activeTab === 'history' ? 'text-[rgb(var(--accent-300))] scale-105 font-bold' : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
               <History className="w-5 h-5" />
-              <span className="text-[10px] tracking-wide">History</span>
+              <span className="text-[10px] tracking-wide">{t('nav.history')}</span>
             </button>
 
             <button
               onClick={() => { setActiveTab('progress'); setCurrentScreen('dashboard'); }}
+              aria-label="Progress tab"
+              aria-current={activeTab === 'progress' ? 'page' : undefined}
               className={`flex flex-col items-center justify-center gap-1.5 py-1 text-center flex-1 transition-all ${
-                activeTab === 'progress' ? 'text-violet-400 scale-105 font-bold' : 'text-zinc-500 hover:text-zinc-300'
+                activeTab === 'progress' ? 'text-[rgb(var(--accent-300))] scale-105 font-bold' : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
               <TrendingUp className="w-5 h-5" />
-              <span className="text-[10px] tracking-wide">Progress</span>
+              <span className="text-[10px] tracking-wide">{t('nav.progress')}</span>
             </button>
 
             <button
               onClick={() => { setActiveTab('settings'); setCurrentScreen('dashboard'); }}
+              aria-label="Settings tab"
+              aria-current={activeTab === 'settings' ? 'page' : undefined}
               className={`flex flex-col items-center justify-center gap-1.5 py-1 text-center flex-1 transition-all ${
-                activeTab === 'settings' ? 'text-violet-400 scale-105 font-bold' : 'text-zinc-500 hover:text-zinc-300'
+                activeTab === 'settings' ? 'text-[rgb(var(--accent-300))] scale-105 font-bold' : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
               <Settings className="w-5 h-5" />
-              <span className="text-[10px] tracking-wide">Settings</span>
+              <span className="text-[10px] tracking-wide">{t('nav.settings')}</span>
             </button>
           </nav>
         </div>
@@ -682,7 +1288,7 @@ export default function App() {
           <div className="bg-zinc-950 border border-zinc-900 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl">
             <div className="px-5 py-4 border-b border-zinc-900 flex items-center justify-between">
               <h3 className="font-extrabold text-white tracking-wide text-base">Configure Weekly Schedule</h3>
-              <button onClick={() => setShowScheduleModal(false)} className="text-zinc-500 hover:text-white">
+              <button onClick={() => setShowScheduleModal(false)} className="text-zinc-500 hover:text-white" aria-label="Close schedule modal">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -711,7 +1317,7 @@ export default function App() {
             <div className="p-4 border-t border-zinc-900 bg-zinc-950">
               <button
                 onClick={() => setShowScheduleModal(false)}
-                className="w-full py-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white rounded-xl text-xs font-extrabold tracking-wide"
+                className="w-full py-3 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-500))] hover:from-[rgb(var(--accent-500))] hover:to-[rgb(var(--accent-600))] text-white rounded-xl text-xs font-extrabold tracking-wide"
               >
                 Save Schedule
               </button>
@@ -723,20 +1329,20 @@ export default function App() {
       {/* POPUP MODAL: WORKOUT COMPLETE CELEBRATION */}
       {showCelebration && lastLoggedSession && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-50 backdrop-blur-md animate-fade-in">
-          <div className="bg-zinc-950 border border-violet-800/60 w-full max-w-sm rounded-[34px] overflow-hidden p-6 text-center shadow-2xl relative">
+          <div className="bg-zinc-950 border border-[rgb(var(--accent-800)/0.6)] w-full max-w-sm rounded-[34px] overflow-hidden p-6 text-center shadow-2xl relative">
             
             {/* Ambient visual sparkle flares */}
-            <div className="absolute top-4 left-6 text-violet-500 animate-pulse"><Sparkles className="w-5 h-5" /></div>
-            <div className="absolute bottom-8 right-6 text-indigo-500 animate-bounce"><Award className="w-6 h-6" /></div>
+            <div className="absolute top-4 left-6 text-[rgb(var(--accent-500))] animate-pulse"><Sparkles className="w-5 h-5" /></div>
+            <div className="absolute bottom-8 right-6 text-[rgb(var(--accent-400))] animate-bounce"><Award className="w-6 h-6" /></div>
 
             <div className="flex flex-col items-center justify-center space-y-5 py-4">
-              <div className="w-16 h-16 rounded-full bg-violet-600/20 border-2 border-violet-500 flex items-center justify-center text-violet-400 shadow shadow-violet-500/50 animate-bounce">
+              <div className="w-16 h-16 rounded-full bg-[rgb(var(--accent-600)/0.2)] border-2 border-[rgb(var(--accent-500))] flex items-center justify-center text-[rgb(var(--accent-400))] shadow shadow-[rgb(var(--accent-500)/0.5)] animate-bounce">
                 <CheckCircle className="w-8 h-8" />
               </div>
 
               <div className="space-y-1">
                 <h2 className="text-xl font-black text-white tracking-wide">Awesome Job!</h2>
-                <p className="text-xs font-semibold text-violet-400 uppercase tracking-widest">WORKOUT RECORDED SUCCESSFULLY</p>
+                <p className="text-xs font-semibold text-[rgb(var(--accent-400))] uppercase tracking-widest">WORKOUT RECORDED SUCCESSFULLY</p>
               </div>
 
               <div className="bg-zinc-900/60 border border-zinc-900 p-3.5 rounded-2xl w-full text-left text-xs space-y-2">
@@ -753,7 +1359,7 @@ export default function App() {
                 <div className="flex justify-between">
                   <span className="text-zinc-500 font-bold">Total Sets:</span>
                   <span className="text-zinc-200 font-black font-mono">
-                    {lastLoggedSession.exercises.reduce((acc, ex) => acc + ex.sets.length, 0)} sets finished
+                    {lastLoggedSession.exercises.reduce((acc, ex) => acc + ex.sets.filter(s => s.completed).length, 0)} sets finished
                   </span>
                 </div>
               </div>
@@ -764,7 +1370,7 @@ export default function App() {
 
               <button
                 onClick={() => setShowCelebration(false)}
-                className="w-full py-4 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 text-white rounded-2xl text-xs font-extrabold tracking-wider shadow shadow-violet-800/50 transition-all border border-violet-500/10"
+                className="w-full py-4 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-500))] hover:from-[rgb(var(--accent-500))] text-white rounded-2xl text-xs font-extrabold tracking-wider shadow shadow-[rgb(var(--accent-800)/0.5)] transition-all border border-[rgb(var(--accent-500)/0.1)]"
               >
                 CONTINUE TRACKING
               </button>
@@ -776,14 +1382,14 @@ export default function App() {
       {/* AUTO-LOGGED SAFETY LIMIT OVERLAY */}
       {autologMessage && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-5">
-          <div className="bg-zinc-950 border border-violet-800/40 w-full max-w-sm rounded-[34px] overflow-hidden p-6 text-center shadow-2xl relative animate-scale-up space-y-5">
-            <div className="w-16 h-16 rounded-full bg-violet-600/15 border border-violet-500/20 text-violet-400 flex items-center justify-center mx-auto shadow-lg animate-pulse">
+          <div className="bg-zinc-950 border border-[rgb(var(--accent-800)/0.4)] w-full max-w-sm rounded-[34px] overflow-hidden p-6 text-center shadow-2xl relative animate-scale-up space-y-5">
+            <div className="w-16 h-16 rounded-full bg-[rgb(var(--accent-600)/0.15)] border border-[rgb(var(--accent-500)/0.2)] text-[rgb(var(--accent-400))] flex items-center justify-center mx-auto shadow-lg animate-pulse">
               <CheckCircle className="w-8 h-8" />
             </div>
             
             <div className="space-y-1">
               <h3 className="text-base font-black text-white tracking-tight">Session Auto-Logged</h3>
-              <p className="text-[10px] text-violet-400 font-black uppercase tracking-widest">Forgot-to-Close Preventer</p>
+              <p className="text-[10px] text-[rgb(var(--accent-400))] font-black uppercase tracking-widest">Forgot-to-Close Preventer</p>
             </div>
 
             <p className="text-xs text-zinc-300 leading-relaxed font-semibold">
@@ -792,7 +1398,7 @@ export default function App() {
 
             <button
               onClick={() => setAutologMessage(null)}
-              className="w-full py-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 text-white rounded-xl text-xs font-black tracking-widest transition duration-150"
+              className="w-full py-3 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-500))] hover:from-[rgb(var(--accent-500))] text-white rounded-xl text-xs font-black tracking-widest transition duration-150"
             >
               ACKNOWLEDGE LOG
             </button>
@@ -800,12 +1406,20 @@ export default function App() {
         </div>
       )}
 
+      <OnboardingTour
+        open={showOnboarding}
+        stepIndex={onboardingStep}
+        onBack={handleBackOnboarding}
+        onNext={handleNextOnboarding}
+        onSkip={handleDismissOnboarding}
+      />
+
       <ConfirmModal
         open={showWipeConfirm}
-        title="Wipe Database?"
-        eyebrow="Danger Zone"
-        message="This permanently clears your entire history, workout routines, exercise database, schedule, and local settings."
-        confirmLabel="Wipe Everything"
+        title={t('confirm.erase.title')}
+        eyebrow={t('confirm.erase.eyebrow')}
+        message={t('confirm.erase.message')}
+        confirmLabel={t('confirm.erase.action')}
         tone="danger"
         onConfirm={() => {
           localStorage.clear();

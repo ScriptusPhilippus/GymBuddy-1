@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { POSE_GLYPHS } from './pose-glyphs';
 
 /**
  * PoseIcon
@@ -27,6 +28,46 @@ interface PoseIconProps {
 }
 
 const FALLBACK_SRC = '/poses/generic.png';
+const PNG_POSE_KEYS = new Set([
+  'bench-press',
+  'bike',
+  'box-jump',
+  'burpee',
+  'calf-raise',
+  'carry',
+  'chest-fly',
+  'crunch',
+  'curl',
+  'deadlift',
+  'dip',
+  'elliptical',
+  'face-pull',
+  'generic',
+  'hip-thrust',
+  'hyperextension',
+  'jump-rope',
+  'kettlebell-swing',
+  'lateral-raise',
+  'leg-curl',
+  'leg-extension',
+  'lunge',
+  'mountain-climber',
+  'overhead-press',
+  'plank',
+  'pull-up',
+  'pulldown',
+  'push-up',
+  'row',
+  'rowing-machine',
+  'run',
+  'shrug',
+  'sit-up',
+  'squat',
+  'stretch',
+  'treadmill',
+  'tricep-extension',
+  'walk',
+]);
 
 function srcForName(name: string): string {
   if (!name) return FALLBACK_SRC;
@@ -35,6 +76,23 @@ function srcForName(name: string): string {
 
 export const PoseIcon: React.FC<PoseIconProps> = ({ name, className = '', size = 56 }) => {
   const [errored, setErrored] = useState(false);
+
+  useEffect(() => {
+    setErrored(false);
+  }, [name]);
+
+  const glyphIcon = name && !PNG_POSE_KEYS.has(name) ? POSE_GLYPHS[name] : undefined;
+  if (glyphIcon) {
+    return (
+      <div
+        className={`inline-flex items-center justify-center text-zinc-100 ${className}`}
+        style={{ width: size, height: size }}
+        aria-hidden="true"
+      >
+        {glyphIcon}
+      </div>
+    );
+  }
 
   // When the requested PNG fails to load (typo, custom exercise with
   // unknown poseIcon, etc.) we silently swap in the generic icon.
