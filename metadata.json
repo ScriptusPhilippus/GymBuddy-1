@@ -1,6 +1,6 @@
 {
-  "name": "Gym Notepad",
+  "name": "GymBuddy",
   "description": "A premium, dark-themed workout logger and exercise reference app featuring interactive muscle targeting, customizable routines, and session tracking.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }

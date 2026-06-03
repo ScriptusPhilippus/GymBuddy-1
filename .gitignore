@@ -9,5 +9,5 @@ android/.idea/
 android/**/build/
 .DS_Store
 *.log
-.env*
-!.env.example
+.env
+.env.*

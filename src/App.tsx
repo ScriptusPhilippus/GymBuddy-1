@@ -555,7 +555,13 @@ export default function App() {
       });
 
     const csv = rows
-      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .map(row => row.map(cell => {
+        let s = String(cell);
+        // Neutralize spreadsheet formula injection: a cell opening with one of
+        // these characters could execute as a formula in Excel/Sheets.
+        if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+        return `"${s.replace(/"/g, '""')}"`;
+      }).join(','))
       .join('\n');
     downloadTextFile(
       `gymbuddy-exercise-history-${new Date().toISOString().slice(0, 10)}.csv`,

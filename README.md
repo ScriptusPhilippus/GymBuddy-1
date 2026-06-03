@@ -1,16 +1,49 @@
-# Run and deploy your AI Studio app
+# GymBuddy
 
-This contains everything you need to run your app locally.
+A dark, mobile-first workout tracker — routines, a live set logger, a 100+ exercise reference with muscle targeting, and progress analytics. Runs as an installable PWA and ships to Android via Capacitor.
 
-View your app in AI Studio: https://ai.studio/apps/f19020bb-4269-4cea-a015-173c536f93ed
+**Privacy:** GymBuddy is fully client-side. All data (routines, history, PRs, bodyweight, settings) is stored locally in your browser via `localStorage`. There is no backend, no account, and nothing is sent to a server. Use **Settings → Advanced → Export data** to back up.
 
-## Run Locally
+## Tech stack
 
-**Prerequisites:**  Node.js
+- Vite 6 + React 19 + TypeScript
+- Tailwind CSS v4
+- Capacitor 8 (Android)
+- PWA (service worker + web manifest)
 
+## Run locally
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+**Prerequisites:** Node.js 18+
+
+```bash
+npm install
+npm run dev        # http://localhost:3000
+```
+
+## Build
+
+```bash
+npm run lint       # tsc --noEmit (type check)
+npm run build      # production build -> dist/
+npm run preview    # preview the production build
+```
+
+## Deploy (Netlify)
+
+The repo ships a `netlify.toml` with the build command, publish directory, an SPA fallback, and baseline security headers.
+
+- Build command: `npm run build`
+- Publish directory: `dist`
+
+Push to the connected GitHub repo and Netlify builds automatically, or run a manual deploy with the Netlify CLI (see below).
+
+## Ship as an Android app (Capacitor)
+
+```bash
+npm run build
+npx cap add android        # first time only
+npx cap sync               # copy web build into the native project
+npx cap open android       # open in Android Studio to build the APK/AAB
+```
+
+App id: `com.mitsi.gymbuddy` (see `capacitor.config.ts`).

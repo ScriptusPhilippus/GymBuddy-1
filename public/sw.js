@@ -1,5 +1,5 @@
-const CACHE_NAME = 'gymbuddy-shell-v3';
-const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icons/gymbuddy.svg', '/anatomy/front_body.png', '/anatomy/back_body.png', '/poses/generic.png'];
+const CACHE_NAME = 'gymbuddy-shell-v4';
+const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icons/app-icon.png', '/anatomy/front_body.png', '/anatomy/back_body.png', '/poses/generic.png'];
 
 self.addEventListener('install', event => {
   event.waitUntil(
