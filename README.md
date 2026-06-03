@@ -41,9 +41,10 @@ Push to the connected GitHub repo and Netlify builds automatically, or run a man
 
 ```bash
 npm run build
-npx cap add android        # first time only
-npx cap sync               # copy web build into the native project
-npx cap open android       # open in Android Studio to build the APK/AAB
+npx cap add android                        # first time only
+npx cap sync                               # copy web build into the native project
+npx @capacitor/assets generate --android   # generate launcher icons from assets/icon.png
+npx cap open android                       # open in Android Studio to build the APK/AAB
 ```
 
 App id: `com.mitsi.gymbuddy` (see `capacitor.config.ts`).

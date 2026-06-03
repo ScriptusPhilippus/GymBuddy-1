@@ -83,8 +83,6 @@ textarea {
   -webkit-tap-highlight-color: transparent;
 }
 
-button,
-[role="button"] {
-  min-width: 40px;
-  min-height: 40px;
-}
+/* NOTE: no global min tap-size — this UI has many intentionally small controls
+ * (streak dots, in-session steppers, chips). Touch-target sizing is handled
+ * per-button with padding where it actually matters. */

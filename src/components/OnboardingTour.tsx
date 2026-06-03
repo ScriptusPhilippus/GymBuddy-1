@@ -35,7 +35,7 @@ const steps = [
     icon: PlayCircle,
     eyebrow: 'Live logging',
     title: 'Start and log the workout',
-    body: 'Use Start Workout to enter the live logger. It tracks sets, units, rest prompts, and keeps the session resumable.',
+    body: 'Hit Start Workout to log sets live — rest timers fire automatically, and you can leave and resume anytime.',
     spotlight: 'bottom-16 left-1/2 -translate-x-1/2 w-[min(92vw,430px)] h-24',
     panel: 'top-28'
   },
@@ -43,7 +43,7 @@ const steps = [
     icon: History,
     eyebrow: 'History',
     title: 'Review training days',
-    body: 'The calendar shows completed-set intensity. Tap active days to filter the session list for that date.',
+    body: 'Your streak calendar shows how hard each day was. Tap any active day to see just that session.',
     spotlight: 'top-[130px] left-1/2 -translate-x-1/2 w-[min(92vw,430px)] h-[420px]',
     panel: 'bottom-24'
   },
@@ -51,7 +51,7 @@ const steps = [
     icon: TrendingUp,
     eyebrow: 'Progress',
     title: 'Read your trends',
-    body: 'Progress keeps fixed-color charts for cardio, muscle load, volume, estimated 1RM, and bodyweight.',
+    body: 'Track your trends — muscle load, volume, estimated 1RM, cardio and bodyweight, each in its own colour.',
     spotlight: 'top-[130px] left-1/2 -translate-x-1/2 w-[min(92vw,430px)] h-[420px]',
     panel: 'bottom-24'
   },
@@ -79,7 +79,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ open, stepIndex,
     <>
       <div className="fixed inset-0 z-[70] pointer-events-none">
         <div
-          className={`absolute rounded-[28px] border-2 border-[rgb(var(--accent-400)/0.85)] shadow-[0_0_0_9999px_rgba(0,0,0,0.68)] ${step.spotlight}`}
+          className={`absolute rounded-[30px] border border-[rgb(var(--accent-400)/0.6)] shadow-[0_0_0_9999px_rgba(0,0,0,0.74)] transition-all duration-300 ease-out ${step.spotlight}`}
         />
       </div>
 
