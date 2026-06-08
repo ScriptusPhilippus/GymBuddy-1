@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { AlertCircle, CheckCircle } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface ConfirmModalProps {
   open: boolean;
@@ -21,18 +22,22 @@ interface ConfirmModalProps {
 export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   open,
   title,
-  eyebrow = 'Confirm action',
+  eyebrow,
   message,
   confirmLabel,
-  cancelLabel = 'Cancel',
+  cancelLabel,
   tone = 'default',
   onConfirm,
   onCancel
 }) => {
+  const { t } = useI18n();
+
   if (!open) return null;
 
   const isDanger = tone === 'danger';
   const Icon = isDanger ? AlertCircle : CheckCircle;
+  const modalEyebrow = eyebrow ?? t('confirm.defaultEyebrow');
+  const modalCancelLabel = cancelLabel ?? t('common.cancel');
 
   return (
     <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-5">
@@ -52,7 +57,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           <p className={`text-[10px] font-black uppercase tracking-widest ${
             isDanger ? 'text-rose-400' : 'text-[rgb(var(--accent-400))]'
           }`}>
-            {eyebrow}
+            {modalEyebrow}
           </p>
         </div>
 
@@ -75,7 +80,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             onClick={onCancel}
             className="w-full py-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 rounded-xl text-xs font-black tracking-widest transition duration-150"
           >
-            {cancelLabel}
+            {modalCancelLabel}
           </button>
         </div>
       </div>

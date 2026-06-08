@@ -17,6 +17,7 @@ import { ConfirmModal } from './components/ConfirmModal';
 import { OnboardingTour, ONBOARDING_STEP_COUNT } from './components/OnboardingTour';
 import { resolveDistanceSystem } from './data/unit-traits';
 import { createTranslator, LANGUAGE_OPTIONS } from './data/localization';
+import { LocalizationProvider } from './i18n';
 import { ClipboardList, History, Trophy, TrendingUp, Settings, Calendar, Award, CheckCircle, Flame, Dumbbell, Sparkles, ArrowRight, ChevronRight, ChevronDown, Trash2, X, Play } from 'lucide-react';
 
 const GYM_STORAGE_KEYS = [
@@ -212,6 +213,11 @@ export default function App() {
     document.documentElement.dataset.accent = accentHue;
   }, [accentHue]);
 
+  useEffect(() => {
+    document.documentElement.lang = language;
+    document.documentElement.translate = false;
+  }, [language]);
+
   const applyOnboardingStep = (index: number) => {
     const safeIndex = Math.min(Math.max(index, 0), ONBOARDING_STEP_COUNT - 1);
     const target = ONBOARDING_TAB_SEQUENCE[safeIndex] || ONBOARDING_TAB_SEQUENCE[0];
@@ -260,10 +266,12 @@ export default function App() {
   // 1. Load starting database from localStorage or seed initial defaults
   useEffect(() => {
     // a. Exercises Custom seeds.
-    //    Bumped to v3 after the expanded catalogue + category audit;
-    //    existing installs need their built-in entries refreshed.
+    //    Bumped to v5 after wiring dedicated per-exercise pose icons across
+    //    the whole catalogue (v4 covered the three bench-press variants; the
+    //    expanded catalogue + category audit landed in v3); existing installs
+    //    need their built-in entries refreshed.
     //    Any custom-* exercises the user created are preserved.
-    const EXERCISES_SEED_VERSION = 3;
+    const EXERCISES_SEED_VERSION = 5;
     const storedVersion = parseInt(localStorage.getItem('gym_exercises_version') || '0', 10);
     const storedExercises = safeParse<Exercise[] | null>('gym_exercises', null);
 
@@ -376,7 +384,7 @@ export default function App() {
 
             localStorage.removeItem('gym_active_session_data');
             
-            setAutologMessage(`Your previous workout session on "${savedRoutine.name}" has been completed and saved securely because it reached the maximum workout timer limit of ${maxLimitMinutes} minutes.`);
+            setAutologMessage(t('autolog.message.previous', { name: savedRoutine.name, minutes: maxLimitMinutes }));
             setCurrentScreen('dashboard');
             setActiveTab('history');
           } else {
@@ -501,7 +509,7 @@ export default function App() {
     try {
       parsed = JSON.parse(raw);
     } catch {
-      throw new Error('Import failed: the file is not valid JSON.');
+      throw new Error(t('import.invalidJson'));
     }
 
     if (!isRecord(parsed) || !isRecord(parsed.data)) {
@@ -588,7 +596,7 @@ export default function App() {
     setActiveTab('history'); // route to log history
 
     if (session.id.startsWith('autosession-')) {
-      setAutologMessage(`Your workout session on "${session.routineName}" was completed and saved because it reached the maximum workout timer limit of ${settings.maxWorkoutDuration || 120} minutes.`);
+      setAutologMessage(t('autolog.message.current', { name: session.routineName, minutes: settings.maxWorkoutDuration || 120 }));
       setLastLoggedSession(null);
       setShowCelebration(false);
     } else {
@@ -668,7 +676,8 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 flex flex-col font-sans relative antialiased selection:bg-[rgb(var(--accent-600))] selection:text-white" id="gym-notepad-app">
+    <LocalizationProvider language={language}>
+    <div className="notranslate min-h-screen bg-black text-zinc-100 flex flex-col font-sans relative antialiased selection:bg-[rgb(var(--accent-600))] selection:text-white" id="gym-notepad-app">
       
       {/* BACKGROUND DECORATIVE GLOWS */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-lg h-96 bg-gradient-to-b from-[rgb(var(--accent-600)/0.1)] via-[rgb(var(--accent-500)/0.05)] to-transparent blur-3xl rounded-full -z-10 pointer-events-none" />
@@ -731,8 +740,8 @@ export default function App() {
             <button
               onClick={() => setShowScheduleModal(true)}
               className="p-3 bg-zinc-900/60 hover:bg-zinc-800 border border-zinc-800 rounded-2xl text-zinc-300 hover:text-[rgb(var(--accent-400))] shadow shadow-black transition-all"
-              title="Configure weekly planner schedule"
-              aria-label="Configure weekly planner schedule"
+              title={t('app.configureSchedule')}
+              aria-label={t('app.configureSchedule')}
             >
               <Calendar className="w-5 h-5" />
             </button>
@@ -747,9 +756,9 @@ export default function App() {
                   <button
                     onClick={handlePreviewScheduledRoutine}
                     className="text-left space-y-0.5 min-w-0 flex-1 group cursor-pointer"
-                    title="Preview this routine's planned exercises"
+                    title={t('app.previewScheduled')}
                   >
-                    <span className="text-[9px] font-extrabold text-[rgb(var(--accent-300))] uppercase tracking-widest block">Next Scheduled Routine</span>
+                    <span className="text-[9px] font-extrabold text-[rgb(var(--accent-300))] uppercase tracking-widest block">{t('app.nextScheduledRoutine')}</span>
                     <h3 className="text-sm font-bold text-white tracking-wide inline-flex items-center gap-1 max-w-full group-hover:text-[rgb(var(--accent-200))] transition-colors">
                       <span className="truncate">{activeScheduled.name}</span>
                       <ChevronRight className="w-3.5 h-3.5 text-[rgb(var(--accent-300))] shrink-0 group-hover:translate-x-0.5 transition-transform" />
@@ -761,7 +770,7 @@ export default function App() {
                       disabled={activeScheduled.exercises.length === 0}
                       className="flex items-center gap-1.5 px-4 py-2.5 shrink-0 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-500))] hover:from-[rgb(var(--accent-500))] rounded-xl text-xs font-bold text-white shadow shadow-black/30 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      {activeScheduled.exercises.length === 0 ? t('startWorkout.empty') : 'Start'} <ArrowRight className="w-3.5 h-3.5" />
+                      {activeScheduled.exercises.length === 0 ? t('startWorkout.empty') : t('startWorkout.short')} <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
@@ -830,7 +839,7 @@ export default function App() {
                       <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.measurementSystem')}</span>
                       <span className="text-[10px] text-zinc-500 block">{t('settings.measurementSystem.help')}</span>
                       {measurementPreset === 'custom' && (
-                        <span className="text-[9px] text-[rgb(var(--accent-400))] font-black uppercase tracking-widest">Custom: {settings.weightUnit} + {effectiveDistanceUnit}</span>
+                        <span className="text-[9px] text-[rgb(var(--accent-400))] font-black uppercase tracking-widest">{t('settings.customUnits', { weightUnit: settings.weightUnit, distanceUnit: effectiveDistanceUnit })}</span>
                       )}
                     </div>
 
@@ -877,11 +886,11 @@ export default function App() {
                       onChange={(e) => handleUpdateSettings({ ...settings, defaultRestDuration: parseInt(e.target.value) })}
                       className="bg-zinc-950 border border-zinc-800 text-xs text-white px-2.5 py-1.5 rounded-xl focus:outline-none focus:border-[rgb(var(--accent-600))] shrink-0"
                     >
-                      <option value={45}>45 seconds</option>
-                      <option value={60}>60 seconds</option>
-                      <option value={90}>90 seconds</option>
-                      <option value={120}>2 minutes</option>
-                      <option value={180}>3 minutes</option>
+                      <option value={45}>{t('duration.seconds', { count: 45 })}</option>
+                      <option value={60}>{t('duration.seconds', { count: 60 })}</option>
+                      <option value={90}>{t('duration.seconds', { count: 90 })}</option>
+                      <option value={120}>{t('duration.minutes', { count: 2 })}</option>
+                      <option value={180}>{t('duration.minutes', { count: 3 })}</option>
                     </select>
                   </div>
 
@@ -947,7 +956,7 @@ export default function App() {
                           }`}
                         >
                           <span className={`w-3 h-3 rounded-full ${option.swatch}`} />
-                          {option.label}
+                          {t(`hue.${option.id}`)}
                         </button>
                       ))}
                     </div>
@@ -1041,12 +1050,12 @@ export default function App() {
                           onChange={(e) => handleUpdateSettings({ ...settings, maxWorkoutDuration: parseInt(e.target.value) })}
                           className="bg-zinc-950 border border-zinc-800 text-xs text-white px-2.5 py-1.5 rounded-xl focus:outline-none focus:border-[rgb(var(--accent-600))] shrink-0"
                         >
-                          <option value={45}>45 minutes</option>
-                          <option value={60}>1 hour</option>
-                          <option value={90}>1.5 hours</option>
-                          <option value={120}>2 hours</option>
-                          <option value={180}>3 hours</option>
-                          <option value={240}>4 hours</option>
+                          <option value={45}>{t('duration.minutes', { count: 45 })}</option>
+                          <option value={60}>{t('duration.hour')}</option>
+                          <option value={90}>{t('duration.hours', { count: 1.5 })}</option>
+                          <option value={120}>{t('duration.hours', { count: 2 })}</option>
+                          <option value={180}>{t('duration.hours', { count: 3 })}</option>
+                          <option value={240}>{t('duration.hours', { count: 4 })}</option>
                         </select>
                       </div>
 
@@ -1158,7 +1167,7 @@ export default function App() {
                             e.target.value = '';
                             if (!file) return;
                             handleImportData(file).catch(err => {
-                              setAutologMessage(err instanceof Error ? err.message : 'Import failed.');
+                              setAutologMessage(err instanceof Error ? err.message : t('import.failed'));
                             });
                           }}
                         />
@@ -1239,7 +1248,7 @@ export default function App() {
           <nav id="bottom-bar-nav" className="sticky bottom-0 bg-zinc-950/95 border-t border-zinc-900/80 backdrop-blur z-30 pt-1.5 pb-2.5 px-4 w-full max-w-lg mx-auto flex items-center justify-around h-16">
             <button
               onClick={() => { setActiveTab('workout'); setCurrentScreen('dashboard'); }}
-              aria-label="Workout tab"
+              aria-label={t('nav.workout')}
               aria-current={activeTab === 'workout' ? 'page' : undefined}
               className={`flex flex-col items-center justify-center gap-1.5 py-1 text-center flex-1 transition-all ${
                 activeTab === 'workout' ? 'text-[rgb(var(--accent-300))] scale-105 font-bold' : 'text-zinc-500 hover:text-zinc-300'
@@ -1251,7 +1260,7 @@ export default function App() {
 
             <button
               onClick={() => { setActiveTab('history'); setCurrentScreen('dashboard'); }}
-              aria-label="History tab"
+              aria-label={t('nav.history')}
               aria-current={activeTab === 'history' ? 'page' : undefined}
               className={`flex flex-col items-center justify-center gap-1.5 py-1 text-center flex-1 transition-all ${
                 activeTab === 'history' ? 'text-[rgb(var(--accent-300))] scale-105 font-bold' : 'text-zinc-500 hover:text-zinc-300'
@@ -1263,7 +1272,7 @@ export default function App() {
 
             <button
               onClick={() => { setActiveTab('progress'); setCurrentScreen('dashboard'); }}
-              aria-label="Progress tab"
+              aria-label={t('nav.progress')}
               aria-current={activeTab === 'progress' ? 'page' : undefined}
               className={`flex flex-col items-center justify-center gap-1.5 py-1 text-center flex-1 transition-all ${
                 activeTab === 'progress' ? 'text-[rgb(var(--accent-300))] scale-105 font-bold' : 'text-zinc-500 hover:text-zinc-300'
@@ -1275,7 +1284,7 @@ export default function App() {
 
             <button
               onClick={() => { setActiveTab('settings'); setCurrentScreen('dashboard'); }}
-              aria-label="Settings tab"
+              aria-label={t('nav.settings')}
               aria-current={activeTab === 'settings' ? 'page' : undefined}
               className={`flex flex-col items-center justify-center gap-1.5 py-1 text-center flex-1 transition-all ${
                 activeTab === 'settings' ? 'text-[rgb(var(--accent-300))] scale-105 font-bold' : 'text-zinc-500 hover:text-zinc-300'
@@ -1293,8 +1302,8 @@ export default function App() {
         <div className="fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-50 backdrop-blur-sm animate-fade-in">
           <div className="bg-zinc-950 border border-zinc-900 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl">
             <div className="px-5 py-4 border-b border-zinc-900 flex items-center justify-between">
-              <h3 className="font-extrabold text-white tracking-wide text-base">Configure Weekly Schedule</h3>
-              <button onClick={() => setShowScheduleModal(false)} className="text-zinc-500 hover:text-white" aria-label="Close schedule modal">
+              <h3 className="font-extrabold text-white tracking-wide text-base">{t('schedule.configure')}</h3>
+              <button onClick={() => setShowScheduleModal(false)} className="text-zinc-500 hover:text-white" aria-label={t('schedule.close')}>
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1304,13 +1313,13 @@ export default function App() {
                 const checkedId = plannedSchedule[day];
                 return (
                   <div key={day} className="flex items-center justify-between p-3 bg-zinc-900/30 rounded-2xl border border-zinc-900">
-                    <span className="text-xs font-bold text-zinc-300">{day}</span>
+                    <span className="text-xs font-bold text-zinc-300">{t(`day.${day}`)}</span>
                     <select
                       value={checkedId || ''}
                       onChange={(e) => handleScheduleRoutine(day, e.target.value)}
                       className="bg-zinc-950 border border-zinc-800 text-xs text-white px-3 py-1.5 rounded-xl focus:outline-none"
                     >
-                      <option value="">Rest Day</option>
+                      <option value="">{t('schedule.restDay')}</option>
                       {routines.map(r => (
                         <option key={r.id} value={r.id}>{r.name}</option>
                       ))}
@@ -1325,7 +1334,7 @@ export default function App() {
                 onClick={() => setShowScheduleModal(false)}
                 className="w-full py-3 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-500))] hover:from-[rgb(var(--accent-500))] hover:to-[rgb(var(--accent-600))] text-white rounded-xl text-xs font-extrabold tracking-wide"
               >
-                Save Schedule
+                {t('schedule.save')}
               </button>
             </div>
           </div>
@@ -1347,38 +1356,38 @@ export default function App() {
               </div>
 
               <div className="space-y-1">
-                <h2 className="text-xl font-black text-white tracking-wide">Awesome Job!</h2>
-                <p className="text-xs font-semibold text-[rgb(var(--accent-400))] uppercase tracking-widest">WORKOUT RECORDED SUCCESSFULLY</p>
+                <h2 className="text-xl font-black text-white tracking-wide">{t('celebration.title')}</h2>
+                <p className="text-xs font-semibold text-[rgb(var(--accent-400))] uppercase tracking-widest">{t('celebration.subtitle')}</p>
               </div>
 
               <div className="bg-zinc-900/60 border border-zinc-900 p-3.5 rounded-2xl w-full text-left text-xs space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-zinc-500 font-bold">Routine:</span>
+                  <span className="text-zinc-500 font-bold">{t('celebration.routine')}</span>
                   <span className="text-zinc-200 font-black">{lastLoggedSession.routineName}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-500 font-bold">Gym Duration:</span>
+                  <span className="text-zinc-500 font-bold">{t('celebration.duration')}</span>
                   <span className="text-zinc-200 font-black font-mono">
-                    {Math.floor(lastLoggedSession.elapsedSeconds / 60)} minutes
+                    {t('celebration.minutes', { count: Math.floor(lastLoggedSession.elapsedSeconds / 60) })}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-500 font-bold">Total Sets:</span>
+                  <span className="text-zinc-500 font-bold">{t('celebration.totalSets')}</span>
                   <span className="text-zinc-200 font-black font-mono">
-                    {lastLoggedSession.exercises.reduce((acc, ex) => acc + ex.sets.filter(s => s.completed).length, 0)} sets finished
+                    {t('celebration.setsFinished', { count: lastLoggedSession.exercises.reduce((acc, ex) => acc + ex.sets.filter(s => s.completed).length, 0) })}
                   </span>
                 </div>
               </div>
 
               <p className="text-xs text-zinc-400 italic">
-                "Small consistencies lead to great physical bounds."
+                "{t('celebration.quote')}"
               </p>
 
               <button
                 onClick={() => setShowCelebration(false)}
                 className="w-full py-4 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-500))] hover:from-[rgb(var(--accent-500))] text-white rounded-2xl text-xs font-extrabold tracking-wider shadow shadow-[rgb(var(--accent-800)/0.5)] transition-all border border-[rgb(var(--accent-500)/0.1)]"
               >
-                CONTINUE TRACKING
+                {t('celebration.continue')}
               </button>
             </div>
           </div>
@@ -1394,8 +1403,8 @@ export default function App() {
             </div>
             
             <div className="space-y-1">
-              <h3 className="text-base font-black text-white tracking-tight">Session Auto-Logged</h3>
-              <p className="text-[10px] text-[rgb(var(--accent-400))] font-black uppercase tracking-widest">Forgot-to-Close Preventer</p>
+              <h3 className="text-base font-black text-white tracking-tight">{t('autolog.title')}</h3>
+              <p className="text-[10px] text-[rgb(var(--accent-400))] font-black uppercase tracking-widest">{t('autolog.eyebrow')}</p>
             </div>
 
             <p className="text-xs text-zinc-300 leading-relaxed font-semibold">
@@ -1406,7 +1415,7 @@ export default function App() {
               onClick={() => setAutologMessage(null)}
               className="w-full py-3 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-500))] hover:from-[rgb(var(--accent-500))] text-white rounded-xl text-xs font-black tracking-widest transition duration-150"
             >
-              ACKNOWLEDGE LOG
+              {t('autolog.acknowledge')}
             </button>
           </div>
         </div>
@@ -1434,5 +1443,6 @@ export default function App() {
         onCancel={() => setShowWipeConfirm(false)}
       />
     </div>
+    </LocalizationProvider>
   );
 }

@@ -13,9 +13,11 @@ import { POSE_GLYPHS } from './pose-glyphs';
  * in /public/poses/. Each pose is keyed by its file basename (without
  * extension) — e.g. `bench-press` resolves to `/poses/bench-press.png`.
  *
- * If the requested pose is missing (404 or unknown name), the component
- * falls back to `/poses/generic.png` so the UI never renders a broken
- * image icon. The fallback path is also taken if `name` is empty.
+ * Resolution is PNG-first: we try `/poses/<name>.png`, and only if that
+ * 404s (unknown pose, or a built-in whose dedicated art is intentionally
+ * omitted) do we fall back to a matching vector glyph from POSE_GLYPHS,
+ * and finally to `/poses/generic.png`. This keeps the per-name PNG set the
+ * single source of truth — no hand-maintained key list to drift out of sync.
  */
 
 interface PoseIconProps {
@@ -28,93 +30,55 @@ interface PoseIconProps {
 }
 
 const FALLBACK_SRC = '/poses/generic.png';
-const PNG_POSE_KEYS = new Set([
-  'bench-press',
-  'bike',
-  'box-jump',
-  'burpee',
-  'calf-raise',
-  'carry',
-  'chest-fly',
-  'crunch',
-  'curl',
-  'deadlift',
-  'dip',
-  'elliptical',
-  'face-pull',
-  'generic',
-  'hip-thrust',
-  'hyperextension',
-  'jump-rope',
-  'kettlebell-swing',
-  'lateral-raise',
-  'leg-curl',
-  'leg-extension',
-  'lunge',
-  'mountain-climber',
-  'overhead-press',
-  'plank',
-  'pull-up',
-  'pulldown',
-  'push-up',
-  'row',
-  'rowing-machine',
-  'run',
-  'shrug',
-  'sit-up',
-  'squat',
-  'stretch',
-  'treadmill',
-  'tricep-extension',
-  'walk',
-]);
-
-function srcForName(name: string): string {
-  if (!name) return FALLBACK_SRC;
-  return `/poses/${name}.png`;
-}
 
 export const PoseIcon: React.FC<PoseIconProps> = ({ name, className = '', size = 56 }) => {
-  const [errored, setErrored] = useState(false);
+  // 'png' = try the dedicated PNG; 'fallback' = PNG missing, use glyph/generic.
+  const [stage, setStage] = useState<'png' | 'fallback'>('png');
 
   useEffect(() => {
-    setErrored(false);
+    setStage('png');
   }, [name]);
 
-  const glyphIcon = name && !PNG_POSE_KEYS.has(name) ? POSE_GLYPHS[name] : undefined;
-  if (glyphIcon) {
+  const wrapperClass = `inline-flex items-center justify-center text-zinc-100 ${className}`;
+  const glyph = name ? POSE_GLYPHS[name] : undefined;
+
+  if (stage === 'png') {
     return (
-      <div
-        className={`inline-flex items-center justify-center text-zinc-100 ${className}`}
-        style={{ width: size, height: size }}
-        aria-hidden="true"
-      >
-        {glyphIcon}
+      <div className={wrapperClass} style={{ width: size, height: size }} aria-hidden="true">
+        <img
+          src={name ? `/poses/${name}.png` : FALLBACK_SRC}
+          alt=""
+          width={size}
+          height={size}
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          onError={() => setStage('fallback')}
+          className="w-full h-full object-contain select-none pointer-events-none"
+        />
       </div>
     );
   }
 
-  // When the requested PNG fails to load (typo, custom exercise with
-  // unknown poseIcon, etc.) we silently swap in the generic icon.
-  const src = errored ? FALLBACK_SRC : srcForName(name);
+  // PNG missing: prefer a known vector glyph, otherwise the generic icon.
+  if (glyph) {
+    return (
+      <div className={wrapperClass} style={{ width: size, height: size }} aria-hidden="true">
+        {glyph}
+      </div>
+    );
+  }
 
   return (
-    <div
-      className={`inline-flex items-center justify-center text-zinc-100 ${className}`}
-      style={{ width: size, height: size }}
-      aria-hidden="true"
-    >
+    <div className={wrapperClass} style={{ width: size, height: size }} aria-hidden="true">
       <img
-        src={src}
+        src={FALLBACK_SRC}
         alt=""
         width={size}
         height={size}
         loading="lazy"
         decoding="async"
         draggable={false}
-        onError={() => {
-          if (!errored) setErrored(true);
-        }}
         className="w-full h-full object-contain select-none pointer-events-none"
       />
     </div>

@@ -11,6 +11,8 @@ import { ConfirmModal } from './ConfirmModal';
 import { Play, Pause, Trash2, Check, Timer, ArrowLeft, PlusCircle, AlertCircle, Plus, Search } from 'lucide-react';
 import { displayToKm, distanceUnitFor, durationDisplayToMinutes, getDefaultUnit, getUnitTraits, kmToDisplay, minutesToDurationDisplay, resolveDistanceSystem } from '../data/unit-traits';
 import { getCategoryTheme } from '../data/category-theme';
+import { categoryLabel, equipmentLabel } from '../data/localization';
+import { useI18n } from '../i18n';
 
 export type ExerciseMetricType = 'weight-reps' | 'bodyweight-reps' | 'cardio-distance' | 'cardio-duration';
 
@@ -50,6 +52,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
   onFinish,
   onCancel
 }) => {
+  const { t } = useI18n();
   const [isPlaying, setIsPlaying] = useState(true);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [loggedExercises, setLoggedExercises] = useState<LoggedExercise[]>([]);
@@ -124,6 +127,9 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
       const setCount = traits.supportsSets ? planned.sets : 1;
       const sets: LoggedSet[] = [];
       const defaultWeight = settings.weightUnit === 'lbs' ? 100 : 50;
+      const seedWeight = traits.metric === 'weight-reps' && planned.targetWeight && planned.targetWeight > 0
+        ? planned.targetWeight
+        : defaultWeight;
       const plannedNumeric = parseFloat(planned.reps.split('-')[0]);
       const plannedReps = Number.isFinite(plannedNumeric) ? plannedNumeric : 10;
 
@@ -139,7 +145,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
       for (let i = 0; i < setCount; i++) {
         sets.push({
           id: `${planned.id || planned.exerciseId}-set-${i}-${Math.random()}`,
-          weight: defaultWeight,
+          weight: seedWeight,
           reps: Math.round(plannedReps),
           completed: false,
           distance: metricType === 'cardio-distance' ? seedDistance : undefined,
@@ -432,9 +438,12 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
   // Support adding a brand new exercise on-the-fly to the logged session
   const [showAddExModal, setShowAddExModal] = useState(false);
   const [addExerciseSearch, setAddExerciseSearch] = useState('');
-  const addExerciseCandidates = useMemo(() => {
+  // Available exercises grouped by muscle category (same order/coloring as the
+  // library) instead of a flat alphabetical list, alphabetical within each group.
+  const addExerciseGroups = useMemo(() => {
+    const order: Exercise['category'][] = ['chest', 'back', 'shoulders', 'arms', 'legs', 'core', 'cardio'];
     const q = addExerciseSearch.trim().toLowerCase();
-    return exercisesList
+    const available = exercisesList
       .filter(ex => !loggedExercises.some(le => le.exerciseId === ex.id))
       .filter(ex => {
         if (!q) return true;
@@ -443,9 +452,15 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
           || muscleStr.includes(q)
           || ex.category.toLowerCase().includes(q)
           || ex.equipment.toLowerCase().includes(q);
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
+      });
+    return order
+      .map(category => ({
+        category,
+        exercises: available.filter(ex => ex.category === category).sort((a, b) => a.name.localeCompare(b.name))
+      }))
+      .filter(group => group.exercises.length > 0);
   }, [addExerciseSearch, exercisesList, loggedExercises]);
+  const addExerciseCount = useMemo(() => addExerciseGroups.reduce((sum, g) => sum + g.exercises.length, 0), [addExerciseGroups]);
   const closeAddExerciseModal = () => {
     setShowAddExModal(false);
     setAddExerciseSearch('');
@@ -525,14 +540,14 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
           <button
             onClick={onCancel}
             className="p-2 -ml-1 shrink-0 rounded-full hover:bg-zinc-900 text-zinc-400 hover:text-white transition-all duration-200"
-            title="Back to dashboard"
-            aria-label="Back to dashboard"
+            title={t('active.back')}
+            aria-label={t('active.back')}
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="min-w-0">
-            <h1 className="text-sm font-black text-zinc-100 leading-tight truncate">{routine.name || 'Active Session'}</h1>
-            <span className="text-[9px] font-extrabold text-[rgb(var(--accent-500))] uppercase tracking-wider">Logging Workout</span>
+            <h1 className="text-sm font-black text-zinc-100 leading-tight truncate">{routine.name || t('active.session')}</h1>
+            <span className="text-[9px] font-extrabold text-[rgb(var(--accent-500))] uppercase tracking-wider">{t('active.loggingWorkout')}</span>
           </div>
         </div>
 
@@ -541,13 +556,13 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
             onClick={() => setShowExitConfirm(true)}
             className="px-2 py-2 rounded-xl text-[10px] font-bold text-zinc-500 hover:text-red-400 hover:bg-red-950/10 transition-all duration-150"
           >
-            Discard
+            {t('active.discard')}
           </button>
           <button
             onClick={handleCompleteSession}
             className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-[11px] font-black tracking-wide shadow-md shadow-emerald-950/30 active:scale-95 transition-all"
           >
-            FINISH
+            {t('active.finish')}
           </button>
         </div>
       </div>
@@ -559,16 +574,16 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
         <div className="bg-zinc-900/10 border border-zinc-900 rounded-3xl p-3.5 px-4 flex items-start gap-3">
           <AlertCircle className="w-4 h-4 text-[rgb(var(--accent-400))] mt-0.5 shrink-0" />
           <div className="text-[10px] text-zinc-500 font-bold leading-relaxed">
-            Persistence tracking is turned on. Session runs in background! Max Limit: <span className="text-[rgb(var(--accent-400))] font-black">{settings.maxWorkoutDuration || 120} mins</span>. After this, it auto-logs sets for your safety.
+            {t('active.persistence', { minutes: settings.maxWorkoutDuration || 120 })}
           </div>
         </div>
 
         {/* Session overall notes — multi-line for real comments. */}
         <div className="bg-zinc-900/30 border border-zinc-900 rounded-3xl p-4 space-y-2">
-          <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500 block">Session Workout Notes</label>
+          <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500 block">{t('active.notes')}</label>
           <textarea
             rows={2}
-            placeholder="Feeling energetic? Key hydration remarks..."
+            placeholder={t('active.notesPlaceholder')}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-[rgb(var(--accent-600))] focus:ring-1 focus:ring-[rgb(var(--accent-600))] transition resize-none"
@@ -602,14 +617,14 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                   {/* Dynamic Fast Master Completion Switch - solves checkoff speed issue */}
                   <button
                     onClick={() => handleToggleAllSets(exIdx)}
-                    aria-label={allDone ? `Unmark ${exerciseRef.name} completed` : `Mark ${exerciseRef.name} completed`}
+                    aria-label={allDone ? t('active.unmarkExercise') : t('active.markExercise')}
                     aria-pressed={allDone}
                     className={`w-6 h-6 rounded-full border flex items-center justify-center transition focus:outline-none ${
                       allDone 
                         ? 'bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-950/40' 
                         : 'border-zinc-800 bg-zinc-950/40 hover:border-zinc-500 text-transparent hover:text-zinc-500'
                     }`}
-                    title={allDone ? "Unmark entire exercise" : "Mark entire exercise completed"}
+                    title={allDone ? t('active.unmarkExercise') : t('active.markExercise')}
                   >
                     <Check className="w-3.5 h-3.5 text-current stroke-[3.5px]" />
                   </button>
@@ -625,9 +640,9 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                       const badgeClass = getCategoryTheme(exerciseRef.category).chip;
                       return (
                         <p className="text-[9px] font-bold text-zinc-500 mt-1 flex items-center gap-1.5 capitalize">
-                          <span>{exerciseRef.equipment}</span>
+                          <span>{equipmentLabel(t, exerciseRef.equipment)}</span>
                           <span className="text-zinc-800 font-extrabold">•</span>
-                          <span className={`px-1.5 py-0.5 rounded font-black text-[9px] uppercase tracking-wider border ${badgeClass}`}>{exerciseRef.category}</span>
+                          <span className={`px-1.5 py-0.5 rounded font-black text-[9px] uppercase tracking-wider border ${badgeClass}`}>{categoryLabel(t, exerciseRef.category)}</span>
                         </p>
                       );
                     })()}
@@ -639,7 +654,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                   <span className={`text-[9px] font-mono font-black px-2 py-0.5 rounded-full ${
                     allDone ? 'bg-emerald-950/30 text-emerald-400' : 'bg-zinc-950 text-zinc-500'
                   }`}>
-                    {logged.sets.filter(s => s.completed).length}/{logged.sets.length} sets
+                    {logged.sets.filter(s => s.completed).length}/{logged.sets.length} {t('unit.sets')}
                   </span>
 
                   {metricType !== 'cardio-distance' && (
@@ -648,7 +663,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                       className="flex items-center gap-1 px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-[10px] font-bold text-zinc-300 hover:text-white transition-all"
                     >
                       <Plus className="w-3 h-3" />
-                      Add Set
+                      {t('active.addSet')}
                     </button>
                   )}
                 </div>
@@ -656,30 +671,30 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
 
               {/* Set list header based on exercise metric type */}
               <div className="px-4 py-2 bg-zinc-950/30 grid grid-cols-12 text-[9px] font-extrabold uppercase tracking-widest text-zinc-500 border-b border-zinc-900/60">
-                <span className="col-span-2 text-center">Set</span>
+                <span className="col-span-2 text-center">{t('active.set')}</span>
                 {metricType === 'weight-reps' && (
                   <>
-                    <span className="col-span-4 text-center">Weight ({settings.weightUnit})</span>
-                    <span className="col-span-3 text-center">Reps</span>
+                    <span className="col-span-4 text-center">{t('active.weight')} ({settings.weightUnit})</span>
+                    <span className="col-span-3 text-center">{t('unit.reps')}</span>
                   </>
                 )}
                 {metricType === 'bodyweight-reps' && (
                   <>
-                    <span className="col-span-4 text-center">Load</span>
-                    <span className="col-span-3 text-center">Reps</span>
+                    <span className="col-span-4 text-center">{t('active.load')}</span>
+                    <span className="col-span-3 text-center">{t('unit.reps')}</span>
                   </>
                 )}
                 {metricType === 'cardio-distance' && (
                   <>
-                    <span className="col-span-7 text-center">Distance ({distanceTraits.shortLabel})</span>
+                    <span className="col-span-7 text-center">{t('active.distance')} ({distanceTraits.shortLabel})</span>
                   </>
                 )}
                 {metricType === 'cardio-duration' && (
                   <>
-                    <span className="col-span-7 text-center">Duration ({plannedTraits.shortLabel})</span>
+                    <span className="col-span-7 text-center">{t('active.duration')} ({plannedTraits.shortLabel})</span>
                   </>
                 )}
-                <span className="col-span-3 text-right pr-2">Done</span>
+                <span className="col-span-3 text-right pr-2">{t('active.done')}</span>
               </div>
 
               {/* Sets Log List */}
@@ -697,7 +712,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                         <button
                           onClick={() => handleRemoveSet(exIdx, setIdx)}
                           className="p-1 hover:text-red-400 rounded transition text-zinc-700"
-                          aria-label={`Remove set ${setIdx + 1}`}
+                          aria-label={t('active.removeSet', { number: setIdx + 1 })}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -714,7 +729,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                           onClick={() => handleUpdateSet(exIdx, setIdx, 'weight', Math.max(0, set.weight - weightStep))}
                           disabled={set.completed}
                           className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[10px] font-black"
-                          aria-label={`Decrease weight by ${weightStep}`}
+                          aria-label={t('active.decreaseWeight', { amount: weightStep })}
                         >
                           -
                         </button>
@@ -730,7 +745,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                           onClick={() => handleUpdateSet(exIdx, setIdx, 'weight', set.weight + weightStep)}
                           disabled={set.completed}
                           className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[10px] font-black"
-                          aria-label={`Increase weight by ${weightStep}`}
+                          aria-label={t('active.increaseWeight', { amount: weightStep })}
                         >
                           +
                         </button>
@@ -740,7 +755,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                     {metricType === 'bodyweight-reps' && (
                       <div className="col-span-4 flex items-center justify-center">
                         <span className="text-[9px] uppercase font-black text-amber-500 bg-amber-500/5 border border-amber-500/10 px-2 py-0.5 rounded-full tracking-wider">
-                          Bodyweight
+                          {t('active.bodyweight')}
                         </span>
                       </div>
                     )}
@@ -751,7 +766,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                           onClick={() => handleUpdateDisplayDistance(exIdx, setIdx, Math.max(0, parseFloat((getDisplayDistance(set.distance) - distanceTraits.step).toFixed(1))))}
                           disabled={set.completed}
                           className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 api-adjustment-trigger flex items-center justify-center text-[9px] font-black"
-                          aria-label={`Decrease distance by ${distanceTraits.step} ${distanceTraits.shortLabel}`}
+                          aria-label={t('active.decreaseDistance', { amount: distanceTraits.step, unit: distanceTraits.shortLabel })}
                         >
                           -
                         </button>
@@ -770,7 +785,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                           onClick={() => handleUpdateDisplayDistance(exIdx, setIdx, parseFloat((getDisplayDistance(set.distance) + distanceTraits.step).toFixed(1)))}
                           disabled={set.completed}
                           className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[9px] font-black"
-                          aria-label={`Increase distance by ${distanceTraits.step} ${distanceTraits.shortLabel}`}
+                          aria-label={t('active.increaseDistance', { amount: distanceTraits.step, unit: distanceTraits.shortLabel })}
                         >
                           +
                         </button>
@@ -788,7 +803,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                           )}
                           disabled={set.completed}
                           className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[9px] font-black"
-                          aria-label={`Decrease duration by ${plannedTraits.step} ${plannedTraits.shortLabel}`}
+                          aria-label={t('active.decreaseDuration', { amount: plannedTraits.step, unit: plannedTraits.shortLabel })}
                         >
                           -
                         </button>
@@ -812,7 +827,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                           )}
                           disabled={set.completed}
                           className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[9px] font-black"
-                          aria-label={`Increase duration by ${plannedTraits.step} ${plannedTraits.shortLabel}`}
+                          aria-label={t('active.increaseDuration', { amount: plannedTraits.step, unit: plannedTraits.shortLabel })}
                         >
                           +
                         </button>
@@ -826,7 +841,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                           onClick={() => handleUpdateSet(exIdx, setIdx, 'reps', Math.max(0, set.reps - 1))}
                           disabled={set.completed}
                           className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[10px] font-black"
-                          aria-label="Decrease reps"
+                          aria-label={t('active.decreaseReps')}
                         >
                           -
                         </button>
@@ -841,7 +856,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                           onClick={() => handleUpdateSet(exIdx, setIdx, 'reps', set.reps + 1)}
                           disabled={set.completed}
                           className="w-4 h-4 rounded hover:bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30 flex items-center justify-center text-[10px] font-black"
-                          aria-label="Increase reps"
+                          aria-label={t('active.increaseReps')}
                         >
                           +
                         </button>
@@ -852,7 +867,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                     <div className="col-span-3 flex justify-end pr-2">
                       <button
                         onClick={() => handleToggleCompleteSet(exIdx, setIdx)}
-                        aria-label={set.completed ? `Unmark set ${setIdx + 1}` : `Mark set ${setIdx + 1} completed`}
+                        aria-label={set.completed ? t('active.unmarkSet', { number: setIdx + 1 }) : t('active.markSet', { number: setIdx + 1 })}
                         aria-pressed={set.completed}
                         className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all duration-150 focus:outline-none ${
                           set.completed
@@ -876,7 +891,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
           className="w-full py-4 border border-dashed border-zinc-800 rounded-3xl hover:border-[rgb(var(--accent-700)/0.60)] hover:bg-[rgb(var(--accent-950)/0.05)] flex items-center justify-center gap-2 text-zinc-500 hover:text-[rgb(var(--accent-400))] transition"
         >
           <PlusCircle className="w-4 h-4" />
-          <span className="text-xs uppercase font-extrabold tracking-widest text-zinc-400">Integrate Unplanned Exercise</span>
+          <span className="text-xs uppercase font-extrabold tracking-widest text-zinc-400">{t('active.integrateUnplanned')}</span>
         </button>
       </div>
 
@@ -888,16 +903,16 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
         {showRestTimer && restDuration > 0 && (
           <div className="bg-zinc-950/95 border border-[rgb(var(--accent-700)/0.40)] text-white px-4 py-2 rounded-2xl flex items-center gap-3 shadow-xl shadow-black backdrop-blur-md animate-fade-in pointer-events-auto">
             <div className="flex flex-col leading-tight">
-              <span className="text-[9px] font-black uppercase text-zinc-500 tracking-widest">Rest Countdown</span>
+              <span className="text-[9px] font-black uppercase text-zinc-500 tracking-widest">{t('active.restCountdown')}</span>
               <span className="font-mono text-sm font-black text-[rgb(var(--accent-400))]">
-                {restDuration}s <span className="text-zinc-500 font-bold lowercase text-[10px]">left</span>
+                {restDuration}s <span className="text-zinc-500 font-bold lowercase text-[10px]">{t('unit.left')}</span>
               </span>
             </div>
             <button
               onClick={() => { setRestDuration(0); setShowRestTimer(false); }}
               className="text-[10px] uppercase tracking-wider text-zinc-500 hover:text-white font-extrabold"
             >
-              Skip
+              {t('active.skip')}
             </button>
           </div>
         )}
@@ -910,8 +925,8 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                 ? 'bg-zinc-900 text-zinc-300 hover:text-white hover:bg-zinc-800'
                 : 'bg-[rgb(var(--accent-600)/0.30)] text-[rgb(var(--accent-200))] hover:bg-[rgb(var(--accent-600)/0.50)]'
             }`}
-            title={isPlaying ? 'Pause session' : 'Resume session'}
-            aria-label={isPlaying ? 'Pause session' : 'Resume session'}
+            title={isPlaying ? t('active.pause') : t('active.resume')}
+            aria-label={isPlaying ? t('active.pause') : t('active.resume')}
           >
             {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
           </button>
@@ -931,15 +946,15 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
         >
             <div className="p-5 border-b border-zinc-900 flex justify-between items-center bg-zinc-950/20">
               <div>
-                <h3 id="add-exercise-title" className="text-xs font-black uppercase tracking-wider text-white">Add Dynamic Exercise</h3>
-                <p className="text-[9px] text-zinc-500 font-bold">Inject unplanned item to this live session list</p>
+                <h3 id="add-exercise-title" className="text-xs font-black uppercase tracking-wider text-white">{t('active.addDynamicExercise')}</h3>
+                <p className="text-[9px] text-zinc-500 font-bold">{t('active.addDynamicHelp')}</p>
               </div>
               <button 
                 onClick={closeAddExerciseModal}
                 className="text-zinc-400 hover:text-white pr-1"
-                aria-label="Close add exercise modal"
+                aria-label={t('active.closeAddExercise')}
               >
-                Cancel
+                {t('common.cancel')}
               </button>
             </div>
             <div className="p-4 space-y-3">
@@ -949,34 +964,43 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                   type="text"
                   value={addExerciseSearch}
                   onChange={(e) => setAddExerciseSearch(e.target.value)}
-                  placeholder="Search name or muscle..."
+                  placeholder={t('active.searchPlaceholder')}
                   className="w-full bg-zinc-950 border border-zinc-900 focus:border-[rgb(var(--accent-600))] focus:ring-1 focus:ring-[rgb(var(--accent-600)/0.30)] transition pl-10 pr-3 py-3 text-xs rounded-2xl text-zinc-200 placeholder-zinc-600 focus:outline-none"
                 />
               </div>
 
               <div className="max-h-[330px] overflow-y-auto space-y-1.5 pr-1">
-                {addExerciseCandidates.map(ex => {
-                  const theme = getCategoryTheme(ex.category);
-                  return (
-                    <button
-                      key={ex.id}
-                      onClick={() => handleAddExerciseToSession(ex.id)}
-                      className={`w-full text-left p-3 bg-zinc-900/30 hover:bg-zinc-900/80 border border-zinc-900 border-l-4 ${theme.cardBorder} rounded-2xl flex items-center gap-3 transition group`}
-                    >
-                      <PoseIcon name={ex.poseIcon} size={30} className="shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <span className="text-xs font-bold text-zinc-200 block truncate group-hover:text-white">{ex.name}</span>
-                        <span className="text-[9px] uppercase font-bold text-zinc-500 capitalize">{ex.equipment}</span>
-                      </div>
-                      <span className={`text-[9px] border font-black px-1.5 py-0.5 rounded uppercase tracking-wide ${theme.chip}`}>
-                        {ex.category}
-                      </span>
-                    </button>
-                  );
-                })}
-                {addExerciseCandidates.length === 0 && (
+                {addExerciseGroups.map(group => (
+                  <div key={group.category} className="space-y-1.5">
+                    <div className="flex items-center gap-2 px-1 sticky top-0 bg-zinc-950 py-1 z-10">
+                      <span className={`text-[9px] font-black uppercase tracking-widest ${getCategoryTheme(group.category).text}`}>{categoryLabel(t, group.category)}</span>
+                      <span className="text-[9px] text-zinc-600 font-bold">{group.exercises.length}</span>
+                      <span className="flex-1 h-px bg-zinc-900" />
+                    </div>
+                    {group.exercises.map(ex => {
+                      const theme = getCategoryTheme(ex.category);
+                      return (
+                        <button
+                          key={ex.id}
+                          onClick={() => handleAddExerciseToSession(ex.id)}
+                          className={`w-full text-left p-3 bg-zinc-900/30 hover:bg-zinc-900/80 border border-zinc-900 border-l-4 ${theme.cardBorder} rounded-2xl flex items-center gap-3 transition group`}
+                        >
+                          <PoseIcon name={ex.poseIcon} size={30} className="shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-bold text-zinc-200 block truncate group-hover:text-white">{ex.name}</span>
+                            <span className="text-[9px] uppercase font-bold text-zinc-500">{equipmentLabel(t, ex.equipment)}</span>
+                          </div>
+                          <span className={`text-[9px] border font-black px-1.5 py-0.5 rounded uppercase tracking-wide ${theme.chip}`}>
+                            {categoryLabel(t, ex.category)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+                {addExerciseCount === 0 && (
                   <div className="text-center py-8 text-zinc-500 text-xs font-bold">
-                    {addExerciseSearch ? 'No available exercises match that search.' : 'All catalog exercises already listed!'}
+                    {addExerciseSearch ? t('active.noSearch') : t('active.allListed')}
                   </div>
                 )}
               </div>
@@ -993,12 +1017,12 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
             </div>
             
             <div className="space-y-1">
-              <h3 className="text-base font-black text-white tracking-tight">Discard Progress?</h3>
-              <p className="text-[10px] text-rose-400 font-black uppercase tracking-widest">Active session is running</p>
+              <h3 className="text-base font-black text-white tracking-tight">{t('active.discardTitle')}</h3>
+              <p className="text-[10px] text-rose-400 font-black uppercase tracking-widest">{t('active.discardEyebrow')}</p>
             </div>
 
             <p className="text-xs text-zinc-400 leading-relaxed font-semibold">
-              Warning: Discarding will wipe your active workout state, delete logs for completed sets, and return you back to the main menu. Are you sure you want to stop tracking?
+              {t('active.discardWarning')}
             </p>
 
             <div className="flex flex-col gap-2">
@@ -1010,13 +1034,13 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
                 }}
                 className="w-full py-3 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-black tracking-widest transition duration-150"
               >
-                DISCARD AND EXIT
+                {t('active.discardConfirm')}
               </button>
               <button
                 onClick={() => setShowExitConfirm(false)}
                 className="w-full py-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 rounded-xl text-xs font-black tracking-widest transition duration-150"
               >
-                RESUME WORKOUT
+                {t('active.resumeWorkout')}
               </button>
             </div>
           </div>
@@ -1025,11 +1049,11 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
 
       <ConfirmModal
         open={showEmptyFinishConfirm}
-        title="No sets completed"
-        eyebrow="Finish workout"
-        message="No sets are marked complete yet. Save this workout anyway?"
-        confirmLabel="Save Anyway"
-        cancelLabel="Keep Logging"
+        title={t('active.noSetsTitle')}
+        eyebrow={t('active.finishWorkout')}
+        message={t('active.noSetsMessage')}
+        confirmLabel={t('active.saveAnyway')}
+        cancelLabel={t('active.keepLogging')}
         onConfirm={() => {
           setShowEmptyFinishConfirm(false);
           finalizeSession();

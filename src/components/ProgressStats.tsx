@@ -10,6 +10,8 @@ import { Modal } from './Modal';
 import { Sparkles, BarChart2, Zap, Flame, Calendar, Award, TrendingUp, Activity, Scale, Plus, MapPin, Timer, Trash2, HelpCircle, Search, X, ChevronDown, Check } from 'lucide-react';
 import { distanceUnitFor, getUnitTraits, kmToDisplay, resolveDistanceSystem } from '../data/unit-traits';
 import { getCategoryTheme } from '../data/category-theme';
+import { categoryLabel, equipmentLabel, muscleLabel } from '../data/localization';
+import { useI18n } from '../i18n';
 
 // Color semantics for this screen:
 // - accent vars stay on chrome: section icons, toggles, buttons, and focus rings.
@@ -64,6 +66,7 @@ interface SectionInfoProps {
 }
 
 const SectionInfo: React.FC<SectionInfoProps> = ({ icon, title, subtitle, detail, trailing }) => {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const showSubtitle = useContext(HelpTextContext);
 
@@ -83,7 +86,7 @@ const SectionInfo: React.FC<SectionInfoProps> = ({ icon, title, subtitle, detail
             <button
               type="button"
               onClick={() => setExpanded(v => !v)}
-              aria-label={expanded ? `Hide ${title} explanation` : `Show ${title} explanation`}
+              aria-label={expanded ? t('progress.section.hideExplanation', { title }) : t('progress.section.showExplanation', { title })}
               aria-expanded={expanded}
               className={`w-6 h-6 rounded-full border flex items-center justify-center transition ${
                 expanded
@@ -114,6 +117,7 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
   onUpdateBodyWeight,
   showHelpText = true
 }) => {
+  const { t } = useI18n();
   const [muscleView, setMuscleView] = useState<'front' | 'back'>('front');
   const [selected1rmExercise, setSelected1rmExercise] = useState<string>('');
   const [show1rmPicker, setShow1rmPicker] = useState(false);
@@ -285,9 +289,11 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
       .filter(region => region.points > 0)
       .sort((a, b) => b.points - a.points);
     // Purely descriptive most/least summary (no target, no "balance" verdict).
-    const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
     const balanceInsight = completedSetsInWindow >= 4 && activeRegions.length >= 2
-      ? `Most trained: ${cap(activeRegions[0].region)} · Least: ${cap(activeRegions[activeRegions.length - 1].region)}`
+      ? t('progress.loadInsight', {
+          most: categoryLabel(t, activeRegions[0].region),
+          least: categoryLabel(t, activeRegions[activeRegions.length - 1].region)
+        })
       : null;
 
     return {
@@ -298,7 +304,7 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
       rankedMuscles,
       balanceInsight
     };
-  }, [history, loadWindow, exercisesList]);
+  }, [history, loadWindow, exercisesList, t]);
 
   const selectedLoadDetail = selectedLoadMuscle
     ? loadAnalysis.rankedMuscles.find(item => item.muscle === selectedLoadMuscle)
@@ -473,7 +479,8 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
     return r === 0 ? `${h}h` : `${h}h ${r}m`;
   };
 
-  const oneRmExerciseName = (id: string) => exercisesList.find(e => e.id === id)?.name || 'Exercise';
+  const oneRmExerciseName = (id: string) => exercisesList.find(e => e.id === id)?.name || t('dashboard.exercises');
+  const localizedMuscleLabel = (muscle: MuscleGroup) => muscleLabel(t, muscle);
   const hasWorkoutProgress = history.length > 0;
 
   return (
@@ -485,7 +492,7 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
         <div className="bg-zinc-900/30 border border-zinc-900 p-4 rounded-3xl space-y-1 relative overflow-hidden">
           <Award className="w-5 h-5 text-amber-400" />
           <div>
-            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Total Lifted</span>
+            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">{t('progress.totalLifted')}</span>
             <span className="text-xl font-black text-white">{stats.totalWeightHoisted.toLocaleString()} <span className="text-xs font-semibold text-zinc-500">{weightUnit}</span></span>
           </div>
           <span className="absolute -bottom-1 -right-1 text-zinc-950 stroke-zinc-900 font-bold select-none text-4xl -z-10">{weightUnit.toUpperCase()}</span>
@@ -494,24 +501,24 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
         <div className="bg-zinc-900/30 border border-zinc-900 p-4 rounded-3xl space-y-1 relative overflow-hidden">
           <Flame className="w-5 h-5 text-rose-400" />
           <div>
-            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Logged Gym Days</span>
-            <span className="text-xl font-black text-white">{stats.totalWorkouts} <span className="text-xs font-semibold text-zinc-500">sessions</span></span>
+            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">{t('progress.loggedGymDays')}</span>
+            <span className="text-xl font-black text-white">{stats.totalWorkouts} <span className="text-xs font-semibold text-zinc-500">{t('unit.sessions')}</span></span>
           </div>
         </div>
 
         <div className="bg-zinc-900/30 border border-zinc-900 p-4 rounded-3xl space-y-1 relative overflow-hidden">
           <Zap className="w-5 h-5 text-violet-400" />
           <div>
-            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Sets Logged</span>
-            <span className="text-xl font-black text-white">{stats.totalSets} <span className="text-xs font-semibold text-zinc-500">sets</span></span>
+            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">{t('progress.setsLogged')}</span>
+            <span className="text-xl font-black text-white">{stats.totalSets} <span className="text-xs font-semibold text-zinc-500">{t('unit.sets')}</span></span>
           </div>
         </div>
 
         <div className="bg-zinc-900/30 border border-zinc-900 p-4 rounded-3xl space-y-1 relative overflow-hidden">
           <BarChart2 className="w-5 h-5 text-sky-400" />
           <div>
-            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Gym Minutes</span>
-            <span className="text-xl font-black text-white">{stats.activeMins} <span className="text-xs font-semibold text-zinc-500">mins</span></span>
+            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">{t('progress.gymMinutes')}</span>
+            <span className="text-xl font-black text-white">{stats.activeMins} <span className="text-xs font-semibold text-zinc-500">{t('unit.mins')}</span></span>
           </div>
         </div>
       </div>
@@ -522,10 +529,10 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
             <TrendingUp className="w-5 h-5" />
           </div>
           <div className="space-y-1">
-            <h3 className="text-sm font-black text-white tracking-tight">Log your first workout to unlock stats</h3>
+            <h3 className="text-sm font-black text-white tracking-tight">{t('progress.emptyTitle')}</h3>
             {showHelpText && (
               <p className="text-xs text-zinc-500 leading-relaxed">
-                Finish a workout or add a bodyweight entry and this tab will fill with charts, load balance, and training trends.
+                {t('progress.emptyHelp')}
               </p>
             )}
           </div>
@@ -536,37 +543,37 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
       <div className="bg-zinc-900/30 border border-zinc-900 p-5 rounded-3xl space-y-4">
         <SectionInfo
           icon={<Activity className="w-4 h-4 text-[rgb(var(--accent-400))]" />}
-          title="Cardio Output"
-          subtitle="Totals from sets logged with distance or time."
-          detail="Distance is stored in kilometres internally, then displayed in your chosen distance unit. Timed cardio adds to total time."
-          trailing={<span className="text-[10px] tracking-wide text-zinc-500 uppercase font-semibold">{stats.cardioSessions} session{stats.cardioSessions === 1 ? '' : 's'}</span>}
+          title={t('progress.cardioOutput')}
+          subtitle={t('progress.cardio.subtitle')}
+          detail={t('progress.cardio.detail')}
+          trailing={<span className="text-[10px] tracking-wide text-zinc-500 uppercase font-semibold">{stats.cardioSessions} {t('unit.sessions')}</span>}
         />
 
         {stats.cardioSessions === 0 ? (
           <div className="py-12 flex flex-col items-center justify-center border border-dashed border-zinc-900 rounded-2xl text-center p-4">
             <MapPin className="w-6 h-6 text-zinc-700" />
-            <span className="text-xs text-zinc-500 mt-2">Log a cardio set (distance or time) to track endurance output.</span>
+            <span className="text-xs text-zinc-500 mt-2">{t('progress.cardio.empty')}</span>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3.5">
             <div className="bg-zinc-950/40 border border-zinc-900 p-4 rounded-2xl space-y-1">
               <MapPin className="w-4 h-4 text-emerald-400" />
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Total Distance</span>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">{t('progress.totalDistance')}</span>
               <span className="text-lg font-black text-white">{totalDistanceDisplay.toFixed(1)} <span className="text-xs font-semibold text-zinc-500">{distanceLabel}</span></span>
             </div>
             <div className="bg-zinc-950/40 border border-zinc-900 p-4 rounded-2xl space-y-1">
               <Timer className="w-4 h-4 text-sky-400" />
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Total Time</span>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">{t('progress.totalTime')}</span>
               <span className="text-lg font-black text-white">{formatDuration(stats.totalCardioMinutes)}</span>
             </div>
             <div className="bg-zinc-950/40 border border-zinc-900 p-4 rounded-2xl space-y-1">
               <Flame className="w-4 h-4 text-rose-400" />
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Longest Distance</span>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">{t('progress.longestDistance')}</span>
               <span className="text-lg font-black text-white">{longestDistanceDisplay.toFixed(1)} <span className="text-xs font-semibold text-zinc-500">{distanceLabel}</span></span>
             </div>
             <div className="bg-zinc-950/40 border border-zinc-900 p-4 rounded-2xl space-y-1">
               <Activity className="w-4 h-4 text-amber-400" />
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Avg / Session</span>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">{t('progress.avgSession')}</span>
               <span className="text-lg font-black text-white">{averageDistanceDisplay.toFixed(1)} <span className="text-xs font-semibold text-zinc-500">{distanceLabel}</span></span>
             </div>
           </div>
@@ -577,9 +584,9 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
       <div className="bg-zinc-900/30 border border-zinc-900 p-5 rounded-3xl space-y-4">
         <SectionInfo
           icon={<Sparkles className="w-4 h-4 text-[rgb(var(--accent-400))]" />}
-          title="Anatomical Load Analysis"
-          subtitle="Which muscles you've trained most vs least, relative to each other."
-          detail="A relative snapshot, not a goal. % is that muscle's share of total training load in the selected window. Points = completed sets ×2 for primary muscles and ×1 for secondary muscles."
+          title={t('progress.anatomicalLoad')}
+          subtitle={t('progress.load.subtitle')}
+          detail={t('progress.load.detail')}
           trailing={(
             <div className="flex bg-zinc-950 border border-zinc-900 p-1 rounded-full text-[10px]">
               {LOAD_WINDOWS.map(option => (
@@ -609,7 +616,7 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
               muscleView === 'front' ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:text-zinc-300'
             }`}
           >
-            Front
+            {t('progress.front')}
           </button>
           <button
             type="button"
@@ -618,7 +625,7 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
               muscleView === 'back' ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:text-zinc-300'
             }`}
           >
-            Back
+            {t('progress.back')}
           </button>
         </div>
 
@@ -643,8 +650,8 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
                 style={{ background: 'linear-gradient(to right, #3b82f6, #ec4899)' }}
               />
               <div className="flex justify-between text-[9px] uppercase tracking-wider text-zinc-600 font-bold">
-                <span>Least</span>
-                <span>Most</span>
+                <span>{t('progress.least')}</span>
+                <span>{t('progress.most')}</span>
               </div>
             </div>
           </div>
@@ -652,11 +659,11 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
           {/* RIGHT: top dominant muscles, sized to the model (no inner scroll) */}
           <div className="flex flex-col">
             <div className="flex items-center justify-between gap-2 mb-2">
-              <h4 className="text-[10px] font-bold tracking-widest uppercase text-zinc-500">Dominant</h4>
-              <span className="text-[9px] font-mono text-zinc-600">{loadAnalysis.totalLoadPoints} pts</span>
+              <h4 className="text-[10px] font-bold tracking-widest uppercase text-zinc-500">{t('progress.dominant')}</h4>
+              <span className="text-[9px] font-mono text-zinc-600">{loadAnalysis.totalLoadPoints} {t('progress.points')}</span>
             </div>
             {loadAnalysis.totalLoadPoints === 0 ? (
-              <span className="text-xs text-zinc-500 block">Log a workout to populate muscle analysis.</span>
+              <span className="text-xs text-zinc-500 block">{t('progress.load.empty')}</span>
             ) : (
               <div className="flex-1 flex flex-col justify-between gap-1.5">
                 {loadAnalysis.rankedMuscles
@@ -672,10 +679,10 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
                       }`}
                     >
                       <div className="flex items-center justify-between gap-1.5">
-                        <span className="text-[11px] font-semibold text-zinc-300 truncate">{formatMuscleLabel(item.muscle)}</span>
+                        <span className="text-[11px] font-semibold text-zinc-300 truncate">{localizedMuscleLabel(item.muscle)}</span>
                         <span className="font-mono shrink-0 leading-none">
                           <span className="text-xs font-black text-white">{item.pct.toFixed(0)}%</span>
-                          <span className="text-[9px] text-zinc-500 ml-0.5">{item.points}p</span>
+                          <span className="text-[9px] text-zinc-500 ml-0.5">{item.points}{t('progress.points')}</span>
                         </span>
                       </div>
                       <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
@@ -694,7 +701,7 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
                 onClick={() => setShowAllMuscles(true)}
                 className="mt-2 self-start text-[9px] font-black uppercase tracking-widest text-[rgb(var(--accent-400))] hover:text-[rgb(var(--accent-300))] transition"
               >
-                View all muscles →
+                {t('progress.viewAllMuscles')} →
               </button>
             )}
           </div>
@@ -705,16 +712,19 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
           <div className="rounded-2xl border border-zinc-900 bg-zinc-950/60 p-4 space-y-3 animate-fade-in">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h4 className="text-sm font-black text-zinc-100">{formatMuscleLabel(selectedLoadDetail.muscle)}</h4>
+                <h4 className="text-sm font-black text-zinc-100">{localizedMuscleLabel(selectedLoadDetail.muscle)}</h4>
                 <p className="text-[10px] text-zinc-500">
-                  {selectedLoadDetail.contributors.reduce((sum, item) => sum + item.sets, 0)} sets this window · {selectedLoadDetail.pct.toFixed(1)}% of load
+                  {t('progress.selectedLoadSummary', {
+                    sets: selectedLoadDetail.contributors.reduce((sum, item) => sum + item.sets, 0),
+                    percent: selectedLoadDetail.pct.toFixed(1)
+                  })}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedLoadMuscle(null)}
                 className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-900 transition shrink-0"
-                aria-label="Close muscle detail"
+                aria-label={t('progress.closeMuscleDetail')}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -730,12 +740,12 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
                 {selectedLoadDetail.contributors.map(item => (
                   <div key={item.exerciseName} className="flex items-center justify-between gap-2 text-[11px]">
                     <span className="text-zinc-300 font-semibold truncate">{item.exerciseName}</span>
-                    <span className="text-zinc-500 font-mono shrink-0">{item.sets} set{item.sets === 1 ? '' : 's'}</span>
+                    <span className="text-zinc-500 font-mono shrink-0">{item.sets} {t('unit.sets')}</span>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-[11px] text-zinc-500">No completed sets hit this muscle in the selected window.</p>
+              <p className="text-[11px] text-zinc-500">{t('progress.noMuscleSets')}</p>
             )}
           </div>
         )}
@@ -754,14 +764,14 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
           >
               <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-900">
                 <div>
-                  <h3 id="all-muscles-title" className="text-sm font-black text-white">All Muscles</h3>
-                  <p className="text-[10px] text-zinc-500">{LOAD_WINDOWS.find(w => w.id === loadWindow)?.label} · load share across every muscle</p>
+                  <h3 id="all-muscles-title" className="text-sm font-black text-white">{t('progress.allMuscles')}</h3>
+                  <p className="text-[10px] text-zinc-500">{t('progress.allMuscles.subtitle', { window: LOAD_WINDOWS.find(w => w.id === loadWindow)?.label || '' })}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowAllMuscles(false)}
                   className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-900 transition"
-                  aria-label="Close all muscles"
+                  aria-label={t('progress.closeAllMuscles')}
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -775,10 +785,10 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
                     className="w-full text-left space-y-1 rounded-xl px-2 py-2 hover:bg-zinc-900/50 transition"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-zinc-300">{formatMuscleLabel(item.muscle)}</span>
+                      <span className="text-xs font-semibold text-zinc-300">{localizedMuscleLabel(item.muscle)}</span>
                       <span className="font-mono shrink-0">
                         <span className="text-sm font-black text-white">{item.pct.toFixed(1)}%</span>
-                        <span className="text-[10px] text-zinc-500 ml-1">{item.points} pts</span>
+                        <span className="text-[10px] text-zinc-500 ml-1">{item.points} {t('progress.points')}</span>
                       </span>
                     </div>
                     <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
@@ -798,16 +808,16 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
       <div className="bg-zinc-900/30 border border-zinc-900 p-5 rounded-3xl space-y-4">
         <SectionInfo
           icon={<Calendar className="w-4 h-4 text-[rgb(var(--accent-400))]" />}
-          title="Total Volume progression"
-          subtitle="Volume = weight × reps summed across a session."
-          detail="A rising line usually means you are doing more total strength work. Cardio distance and timed sets are tracked separately."
-          trailing={<span className="text-[10px] tracking-wide text-zinc-500 uppercase font-semibold">Last 8 workouts</span>}
+          title={t('progress.volume')}
+          subtitle={t('progress.volume.subtitle')}
+          detail={t('progress.volume.detail')}
+          trailing={<span className="text-[10px] tracking-wide text-zinc-500 uppercase font-semibold">{t('progress.last8Workouts')}</span>}
         />
 
         {volumeChartData.length < 2 ? (
           <div className="py-12 flex flex-col items-center justify-center border border-dashed border-zinc-900 rounded-2xl text-center p-4">
             <BarChart2 className="w-6 h-6 text-zinc-700" />
-            <span className="text-xs text-zinc-500 mt-2">Log at least two completed sessions to unlock volume graphs.</span>
+            <span className="text-xs text-zinc-500 mt-2">{t('progress.volume.empty')}</span>
           </div>
         ) : (
           <div className="space-y-2">
@@ -875,9 +885,9 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
       <div className="bg-zinc-900/30 border border-zinc-900 p-5 rounded-3xl space-y-4">
         <SectionInfo
           icon={<TrendingUp className="w-4 h-4 text-[rgb(var(--accent-400))]" />}
-          title="Estimated 1RM"
-          subtitle="Your estimated one-rep max from your best logged set."
-          detail="The estimate uses the Epley formula, so you can track max strength without actually testing a one-rep max."
+          title={t('progress.estimated1rm')}
+          subtitle={t('progress.estimated1rm.subtitle')}
+          detail={t('progress.estimated1rm.detail')}
           trailing={strengthExerciseIds.length > 0 && (
             <button
               type="button"
@@ -893,21 +903,21 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
         {strengthExerciseIds.length === 0 ? (
           <div className="py-12 flex flex-col items-center justify-center border border-dashed border-zinc-900 rounded-2xl text-center p-4">
             <TrendingUp className="w-6 h-6 text-zinc-700" />
-            <span className="text-xs text-zinc-500 mt-2">Log weighted sets to estimate your one-rep max.</span>
+            <span className="text-xs text-zinc-500 mt-2">{t('progress.estimated1rm.empty')}</span>
           </div>
         ) : oneRmChart.length < 2 ? (
           <div className="py-12 flex flex-col items-center justify-center border border-dashed border-zinc-900 rounded-2xl text-center p-4">
             <TrendingUp className="w-6 h-6 text-zinc-700" />
-            <span className="text-xs text-zinc-500 mt-2">Train {oneRmExerciseName(effective1rmId)} across at least two sessions to chart progress.</span>
+            <span className="text-xs text-zinc-500 mt-2">{t('progress.estimated1rm.needsSessions', { name: oneRmExerciseName(effective1rmId) })}</span>
             {allTimeBest1rm > 0 && (
-              <span className="text-[11px] text-violet-400 font-semibold mt-2">Best estimate: {allTimeBest1rm} {weightUnit}</span>
+              <span className="text-[11px] text-violet-400 font-semibold mt-2">{t('progress.bestEstimate', { value: allTimeBest1rm, unit: weightUnit })}</span>
             )}
           </div>
         ) : (
           <div className="space-y-3">
             <div className="flex items-baseline justify-between">
-              <span className="text-[10px] tracking-widest uppercase text-zinc-500 font-bold">Epley estimate</span>
-              <span className="text-xs text-zinc-400">Best <span className="text-violet-400 font-black">{allTimeBest1rm} {weightUnit}</span></span>
+              <span className="text-[10px] tracking-widest uppercase text-zinc-500 font-bold">{t('progress.epleyEstimate')}</span>
+              <span className="text-xs text-zinc-400">{t('progress.best')} <span className="text-violet-400 font-black">{allTimeBest1rm} {weightUnit}</span></span>
             </div>
             <div className="w-full h-44 relative bg-zinc-950/40 border border-zinc-900 p-3 rounded-2xl">
               <svg className="w-full h-full" viewBox="0 0 400 150">
@@ -954,15 +964,15 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
       <div className="bg-zinc-900/30 border border-zinc-900 p-5 rounded-3xl space-y-4">
         <SectionInfo
           icon={<Scale className="w-4 h-4 text-[rgb(var(--accent-400))]" />}
-          title="Body Weight"
-          subtitle="Log bodyweight over time; the line shows your trend."
-          detail="Add one bodyweight entry per day. Today's entry is replaced if you log it again."
+          title={t('progress.bodyWeight')}
+          subtitle={t('progress.bodyWeight.subtitle')}
+          detail={t('progress.bodyWeight.detail')}
           trailing={latestBodyWeight && (
             <div className="text-right">
               <span className="text-sm font-black text-white">{latestBodyWeight.weight} <span className="text-[10px] font-semibold text-zinc-500">{weightUnit}</span></span>
               {bodyWeightDelta !== null && bodyWeightDelta !== 0 && (
                 <span className="block text-[10px] font-semibold text-zinc-400">
-                  {bodyWeightDelta > 0 ? '+' : ''}{bodyWeightDelta} {weightUnit} <span className="text-zinc-600">vs last</span>
+                  {bodyWeightDelta > 0 ? '+' : ''}{bodyWeightDelta} {weightUnit} <span className="text-zinc-600">{t('progress.vsLast')}</span>
                 </span>
               )}
             </div>
@@ -976,14 +986,14 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
             value={bwInput}
             onChange={e => setBwInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') handleAddBodyWeight(); }}
-            placeholder={`Today's weight (${weightUnit})`}
+            placeholder={t('progress.todayWeight', { unit: weightUnit })}
             className="flex-1 bg-zinc-950 border border-zinc-800 text-white text-sm rounded-full px-4 py-2.5 focus:outline-none focus:border-[rgb(var(--accent-500))] focus:ring-1 focus:ring-[rgb(var(--accent-600)/0.25)] placeholder:text-zinc-600"
           />
           <button
             onClick={handleAddBodyWeight}
             disabled={!bwInput || parseFloat(bwInput) <= 0}
             className="bg-zinc-950 border border-zinc-800 hover:border-[rgb(var(--accent-500)/0.45)] disabled:opacity-30 disabled:hover:border-zinc-800 text-[rgb(var(--accent-400))] p-2.5 rounded-full transition-colors shrink-0"
-            aria-label="Add body weight entry"
+            aria-label={t('progress.addBodyWeight')}
           >
             <Plus className="w-5 h-5" />
           </button>
@@ -1038,7 +1048,7 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
                 <span className="text-[11px] text-zinc-400 font-medium">{new Date(entry.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-bold text-white">{entry.weight} <span className="text-[10px] text-zinc-500 font-medium">{weightUnit}</span></span>
-                  <button onClick={() => handleRemoveBodyWeight(entry.id)} className="text-zinc-600 hover:text-rose-400 transition-colors" aria-label="Remove entry">
+                  <button onClick={() => handleRemoveBodyWeight(entry.id)} className="text-zinc-600 hover:text-rose-400 transition-colors" aria-label={t('progress.removeEntry')}>
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -1046,7 +1056,7 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
             ))}
           </div>
         ) : (
-          <span className="text-xs text-zinc-500 block text-center py-2">Add your weight to start tracking trends over time.</span>
+          <span className="text-xs text-zinc-500 block text-center py-2">{t('progress.bodyWeight.empty')}</span>
         )}
       </div>
         </>
@@ -1060,14 +1070,14 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
         >
             <div className="px-5 py-4 border-b border-zinc-900 flex items-center justify-between gap-3">
               <div>
-                <h3 id="one-rm-picker-title" className="text-xs font-black uppercase tracking-wider text-white">Choose 1RM Exercise</h3>
-                <p className="text-[9px] text-zinc-500 font-bold">Most recently trained lifts first</p>
+                <h3 id="one-rm-picker-title" className="text-xs font-black uppercase tracking-wider text-white">{t('progress.choose1rm')}</h3>
+                <p className="text-[9px] text-zinc-500 font-bold">{t('progress.choose1rm.help')}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setShow1rmPicker(false)}
                 className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-900 transition"
-                aria-label="Close 1RM picker"
+                aria-label={t('progress.close1rmPicker')}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1080,7 +1090,7 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
                   type="text"
                   value={oneRmSearch}
                   onChange={(e) => setOneRmSearch(e.target.value)}
-                  placeholder="Search exercise or muscle..."
+                  placeholder={t('progress.searchExercise')}
                   className="w-full bg-zinc-950 border border-zinc-800 focus:border-[rgb(var(--accent-600))] focus:ring-1 focus:ring-[rgb(var(--accent-600)/0.30)] transition pl-10 pr-3 py-3 text-xs rounded-2xl text-zinc-200 placeholder-zinc-600 focus:outline-none"
                 />
               </div>
@@ -1104,11 +1114,11 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
                     >
                       <div className="min-w-0">
                         <span className="text-xs font-bold text-zinc-200 block truncate group-hover:text-white">{exercise.name}</span>
-                        <span className="text-[9px] uppercase font-bold text-zinc-500 capitalize">{exercise.equipment}</span>
+                        <span className="text-[9px] uppercase font-bold text-zinc-500">{equipmentLabel(t, exercise.equipment)}</span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span className={`text-[9px] border font-black px-1.5 py-0.5 rounded uppercase tracking-wide ${theme.chip}`}>
-                          {exercise.category}
+                          {categoryLabel(t, exercise.category)}
                         </span>
                         {selected && <Check className="w-4 h-4 text-[rgb(var(--accent-400))]" />}
                       </div>
@@ -1116,7 +1126,7 @@ export const ProgressStats: React.FC<ProgressStatsProps> = ({
                   );
                 })}
                 {filtered1rmOptions.length === 0 && (
-                  <div className="text-center py-8 text-zinc-500 text-xs font-bold">No strength exercises match that search.</div>
+                  <div className="text-center py-8 text-zinc-500 text-xs font-bold">{t('progress.noStrengthMatches')}</div>
                 )}
               </div>
             </div>

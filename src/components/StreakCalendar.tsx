@@ -6,6 +6,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { WorkoutSession } from '../types';
 import { Flame } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface StreakCalendarProps {
   history: WorkoutSession[];
@@ -25,6 +26,7 @@ const STEP = DOT + GAP;
  * the most recent week on mount. Lives in the History tab.
  */
 export const StreakCalendar: React.FC<StreakCalendarProps> = ({ history, selectedDay, onSelectDay }) => {
+  const { t } = useI18n();
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const { calendarWeeks, activeDaysCount, monthTicks } = useMemo(() => {
@@ -114,9 +116,9 @@ export const StreakCalendar: React.FC<StreakCalendarProps> = ({ history, selecte
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Flame className="w-4 h-4 text-[rgb(var(--accent-400))]" />
-          <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">Streak Calendar</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t('streak.calendar')}</h3>
         </div>
-        <span className="text-[10px] tracking-wide text-zinc-500 uppercase font-semibold">{activeDaysCount} active days</span>
+        <span className="text-[10px] tracking-wide text-zinc-500 uppercase font-semibold">{t('streak.activeDays', { count: activeDaysCount })}</span>
       </div>
 
       <div ref={scrollRef} className="overflow-x-auto pb-1">
@@ -155,8 +157,8 @@ export const StreakCalendar: React.FC<StreakCalendarProps> = ({ history, selecte
                             ? 'ring-1 ring-[rgb(var(--accent-300))]'
                             : ''
                       } ${isSelectable ? 'cursor-pointer hover:ring-1 hover:ring-[rgb(var(--accent-300))]' : 'cursor-default disabled:opacity-100'}`}
-                      title={cell.isFuture ? '' : `${cell.date.toLocaleDateString()} — ${cell.sets} set${cell.sets === 1 ? '' : 's'} across ${cell.workouts} workout${cell.workouts === 1 ? '' : 's'}`}
-                      aria-label={cell.isFuture ? 'Future date' : `${cell.date.toLocaleDateString()} — ${cell.sets} sets across ${cell.workouts} workouts`}
+                      title={cell.isFuture ? '' : t('streak.daySummary', { date: cell.date.toLocaleDateString(), sets: cell.sets, workouts: cell.workouts })}
+                      aria-label={cell.isFuture ? t('streak.futureDate') : t('streak.daySummary', { date: cell.date.toLocaleDateString(), sets: cell.sets, workouts: cell.workouts })}
                       aria-pressed={isSelected}
                     />
                   );
@@ -168,12 +170,12 @@ export const StreakCalendar: React.FC<StreakCalendarProps> = ({ history, selecte
       </div>
 
       <div className="flex items-center justify-end gap-1.5">
-        <span className="text-[9px] text-zinc-600">Fewer sets</span>
+        <span className="text-[9px] text-zinc-600">{t('streak.fewerSets')}</span>
         <div className="w-2 h-2 rounded-full bg-zinc-800/70" />
         <div className="w-2 h-2 rounded-full bg-[rgb(var(--accent-900))]" />
         <div className="w-2 h-2 rounded-full bg-[rgb(var(--accent-700))]" />
         <div className="w-2 h-2 rounded-full bg-[rgb(var(--accent-500))]" />
-        <span className="text-[9px] text-zinc-600">More sets</span>
+        <span className="text-[9px] text-zinc-600">{t('streak.moreSets')}</span>
       </div>
     </div>
   );

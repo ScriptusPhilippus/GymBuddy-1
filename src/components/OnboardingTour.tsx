@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { BookOpen, ChevronLeft, ChevronRight, History, PlayCircle, Settings, TrendingUp, X, ClipboardList } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface OnboardingTourProps {
   open: boolean;
@@ -17,49 +18,49 @@ interface OnboardingTourProps {
 const steps = [
   {
     icon: ClipboardList,
-    eyebrow: 'Workout',
-    title: 'Plan your routine',
-    body: 'This is where you choose a workout blueprint, edit planned targets, and decide what you are training today.',
+    eyebrowKey: 'onboarding.workout.eyebrow',
+    titleKey: 'onboarding.workout.title',
+    bodyKey: 'onboarding.workout.body',
     spotlight: 'top-[190px] left-1/2 -translate-x-1/2 w-[min(92vw,430px)] h-[360px]',
     panel: 'bottom-24'
   },
   {
     icon: BookOpen,
-    eyebrow: 'Library',
-    title: 'Find exercises fast',
-    body: 'The library is grouped by muscle category. Search, filter by equipment, and add movements directly to the selected routine.',
+    eyebrowKey: 'onboarding.library.eyebrow',
+    titleKey: 'onboarding.library.title',
+    bodyKey: 'onboarding.library.body',
     spotlight: 'top-[185px] left-1/2 -translate-x-1/2 w-[min(92vw,430px)] h-[420px]',
     panel: 'bottom-24'
   },
   {
     icon: PlayCircle,
-    eyebrow: 'Live logging',
-    title: 'Start and log the workout',
-    body: 'Hit Start Workout to log sets live — rest timers fire automatically, and you can leave and resume anytime.',
+    eyebrowKey: 'onboarding.live.eyebrow',
+    titleKey: 'onboarding.live.title',
+    bodyKey: 'onboarding.live.body',
     spotlight: 'bottom-16 left-1/2 -translate-x-1/2 w-[min(92vw,430px)] h-24',
     panel: 'top-28'
   },
   {
     icon: History,
-    eyebrow: 'History',
-    title: 'Review training days',
-    body: 'Your streak calendar shows how hard each day was. Tap any active day to see just that session.',
+    eyebrowKey: 'onboarding.history.eyebrow',
+    titleKey: 'onboarding.history.title',
+    bodyKey: 'onboarding.history.body',
     spotlight: 'top-[130px] left-1/2 -translate-x-1/2 w-[min(92vw,430px)] h-[420px]',
     panel: 'bottom-24'
   },
   {
     icon: TrendingUp,
-    eyebrow: 'Progress',
-    title: 'Read your trends',
-    body: 'Track your trends — muscle load, volume, estimated 1RM, cardio and bodyweight, each in its own colour.',
+    eyebrowKey: 'onboarding.progress.eyebrow',
+    titleKey: 'onboarding.progress.title',
+    bodyKey: 'onboarding.progress.body',
     spotlight: 'top-[130px] left-1/2 -translate-x-1/2 w-[min(92vw,430px)] h-[420px]',
     panel: 'bottom-24'
   },
   {
     icon: Settings,
-    eyebrow: 'Settings',
-    title: 'Tune the app',
-    body: 'Change units, accent color, helper text, export data, and replay this walkthrough whenever you want.',
+    eyebrowKey: 'onboarding.settings.eyebrow',
+    titleKey: 'onboarding.settings.title',
+    bodyKey: 'onboarding.settings.body',
     spotlight: 'top-[130px] left-1/2 -translate-x-1/2 w-[min(92vw,430px)] h-[360px]',
     panel: 'bottom-24'
   }
@@ -68,6 +69,8 @@ const steps = [
 export const ONBOARDING_STEP_COUNT = steps.length;
 
 export const OnboardingTour: React.FC<OnboardingTourProps> = ({ open, stepIndex, onBack, onNext, onSkip }) => {
+  const { t } = useI18n();
+
   if (!open) return null;
 
   const safeIndex = Math.min(Math.max(stepIndex, 0), steps.length - 1);
@@ -91,22 +94,22 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ open, stepIndex,
                 <Icon className="w-5 h-5" />
               </div>
               <div className="min-w-0">
-                <p className="text-[9px] font-black uppercase tracking-widest text-[rgb(var(--accent-400))]">{step.eyebrow}</p>
-                <h2 className="text-sm font-black text-white tracking-tight">{step.title}</h2>
+                <p className="text-[9px] font-black uppercase tracking-widest text-[rgb(var(--accent-400))]">{t(step.eyebrowKey)}</p>
+                <h2 className="text-sm font-black text-white tracking-tight">{t(step.titleKey)}</h2>
               </div>
             </div>
             <button
               type="button"
               onClick={onSkip}
               className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-900 transition"
-              aria-label="Skip intro"
+              aria-label={t('onboarding.skip')}
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
           <div className="p-5 space-y-4">
-            <p className="text-xs leading-relaxed text-zinc-300 font-medium">{step.body}</p>
+            <p className="text-xs leading-relaxed text-zinc-300 font-medium">{t(step.bodyKey)}</p>
 
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-1.5">
@@ -130,7 +133,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ open, stepIndex,
                   className="px-3 py-2 rounded-xl border border-zinc-800 bg-zinc-900/40 text-[10px] font-black uppercase tracking-wider text-zinc-400 disabled:opacity-30 hover:text-white transition inline-flex items-center gap-1"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
-                  Back
+                  {t('onboarding.back')}
                 </button>
 
                 <button
@@ -138,7 +141,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ open, stepIndex,
                   onClick={onNext}
                   className="px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-500))] text-white text-[10px] font-black uppercase tracking-wider shadow-lg shadow-[rgb(var(--accent-950)/0.35)] transition active:scale-95 inline-flex items-center gap-1"
                 >
-                  {isLast ? 'Done' : 'Next'}
+                  {isLast ? t('onboarding.done') : t('onboarding.next')}
                   {!isLast && <ChevronRight className="w-3.5 h-3.5" />}
                 </button>
               </div>

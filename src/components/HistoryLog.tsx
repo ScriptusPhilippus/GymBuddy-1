@@ -9,6 +9,7 @@ import { PoseIcon } from './PoseIcon';
 import { Clock, Calendar, ChevronDown, ChevronUp, BarChart2, Hash, Trash2, Flame, Award } from 'lucide-react';
 import { ConfirmModal } from './ConfirmModal';
 import { StreakCalendar } from './StreakCalendar';
+import { useI18n } from '../i18n';
 
 interface HistoryLogProps {
   history: WorkoutSession[];
@@ -25,6 +26,7 @@ export const HistoryLog: React.FC<HistoryLogProps> = ({
   onDeleteSession,
   showHelpText = true
 }) => {
+  const { t } = useI18n();
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [sessionToDeleteId, setSessionToDeleteId] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -158,35 +160,35 @@ export const HistoryLog: React.FC<HistoryLogProps> = ({
             <div className="flex items-center gap-2">
               <Flame className="w-4 h-4 text-[rgb(var(--accent-400))]" />
               <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">Training Consistency</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t('history.trainingConsistency')}</h3>
                 {showHelpText && (
-                  <p className="text-[10px] text-zinc-500">Current streak, longest streak, and recent workout rhythm.</p>
+                  <p className="text-[10px] text-zinc-500">{t('history.trainingHelp')}</p>
                 )}
               </div>
             </div>
-            <span className="text-[10px] tracking-wide text-zinc-500 uppercase font-semibold">{history.length} total</span>
+            <span className="text-[10px] tracking-wide text-zinc-500 uppercase font-semibold">{t('history.totalCount', { count: history.length })}</span>
           </div>
 
           <div className="grid grid-cols-2 gap-3.5">
             <div className="bg-zinc-950/40 border border-zinc-900 p-4 rounded-2xl space-y-1">
               <Flame className="w-4 h-4 text-rose-400" />
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Current Streak</span>
-              <span className="text-lg font-black text-white">{consistency.current} <span className="text-xs font-semibold text-zinc-500">day{consistency.current === 1 ? '' : 's'}</span></span>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">{t('history.currentStreak')}</span>
+              <span className="text-lg font-black text-white">{consistency.current} <span className="text-xs font-semibold text-zinc-500">{t('unit.days')}</span></span>
             </div>
             <div className="bg-zinc-950/40 border border-zinc-900 p-4 rounded-2xl space-y-1">
               <Award className="w-4 h-4 text-amber-400" />
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Longest Streak</span>
-              <span className="text-lg font-black text-white">{consistency.longest} <span className="text-xs font-semibold text-zinc-500">day{consistency.longest === 1 ? '' : 's'}</span></span>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">{t('history.longestStreak')}</span>
+              <span className="text-lg font-black text-white">{consistency.longest} <span className="text-xs font-semibold text-zinc-500">{t('unit.days')}</span></span>
             </div>
             <div className="bg-zinc-950/40 border border-zinc-900 p-4 rounded-2xl space-y-1">
               <Calendar className="w-4 h-4 text-emerald-400" />
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">This Week</span>
-              <span className="text-lg font-black text-white">{consistency.thisWeek} <span className="text-xs font-semibold text-zinc-500">session{consistency.thisWeek === 1 ? '' : 's'}</span></span>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">{t('history.thisWeek')}</span>
+              <span className="text-lg font-black text-white">{consistency.thisWeek} <span className="text-xs font-semibold text-zinc-500">{t('unit.sessions')}</span></span>
             </div>
             <div className="bg-zinc-950/40 border border-zinc-900 p-4 rounded-2xl space-y-1">
               <Calendar className="w-4 h-4 text-sky-400" />
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">This Month</span>
-              <span className="text-lg font-black text-white">{consistency.thisMonth} <span className="text-xs font-semibold text-zinc-500">session{consistency.thisMonth === 1 ? '' : 's'}</span></span>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">{t('history.thisMonth')}</span>
+              <span className="text-lg font-black text-white">{consistency.thisMonth} <span className="text-xs font-semibold text-zinc-500">{t('unit.sessions')}</span></span>
             </div>
           </div>
         </div>
@@ -195,8 +197,8 @@ export const HistoryLog: React.FC<HistoryLogProps> = ({
       {/* History log listing */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Completed Sessions</h2>
-          <span className="text-xs font-semibold text-zinc-400">{filteredHistory.length} of {history.length} shown</span>
+          <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">{t('history.completedSessions')}</h2>
+          <span className="text-xs font-semibold text-zinc-400">{t('history.shownCount', { shown: filteredHistory.length, total: history.length })}</span>
         </div>
 
         {selectedDay && selectedDayLabel && (
@@ -205,7 +207,7 @@ export const HistoryLog: React.FC<HistoryLogProps> = ({
             onClick={() => setSelectedDay(null)}
             className="w-full flex items-center justify-center gap-2 rounded-2xl border border-[rgb(var(--accent-500)/0.25)] bg-[rgb(var(--accent-600)/0.08)] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-[rgb(var(--accent-300))] hover:bg-[rgb(var(--accent-600)/0.14)] transition"
           >
-            Showing {selectedDayLabel} · Show all
+            {t('history.showingDay', { day: selectedDayLabel })}
           </button>
         )}
 
@@ -213,9 +215,9 @@ export const HistoryLog: React.FC<HistoryLogProps> = ({
           <div className="py-12 border border-dashed border-zinc-800 rounded-3xl flex flex-col items-center justify-center text-center space-y-3 p-5">
             <Clock className="w-8 h-8 text-zinc-700" />
             <div className="space-y-1">
-              <h3 className="text-sm font-semibold text-zinc-300">No workout sessions logged yet</h3>
+              <h3 className="text-sm font-semibold text-zinc-300">{t('history.noSessions')}</h3>
               {showHelpText && (
-                <p className="text-xs text-zinc-500">Pick a routine and hit "Start Workout" to begin logging dates.</p>
+                <p className="text-xs text-zinc-500">{t('history.noSessionsHelp')}</p>
               )}
             </div>
           </div>
@@ -223,9 +225,9 @@ export const HistoryLog: React.FC<HistoryLogProps> = ({
           <div className="py-12 border border-dashed border-zinc-800 rounded-3xl flex flex-col items-center justify-center text-center space-y-3 p-5">
             <Clock className="w-8 h-8 text-zinc-700" />
             <div className="space-y-1">
-              <h3 className="text-sm font-semibold text-zinc-300">No sessions on this day</h3>
+              <h3 className="text-sm font-semibold text-zinc-300">{t('history.noDay')}</h3>
               {showHelpText && (
-                <p className="text-xs text-zinc-500">Clear the day filter to return to the full history.</p>
+                <p className="text-xs text-zinc-500">{t('history.clearDayHelp')}</p>
               )}
             </div>
           </div>
@@ -261,8 +263,8 @@ export const HistoryLog: React.FC<HistoryLogProps> = ({
                               setSessionToDeleteId(session.id);
                             }}
                             className="p-2 text-zinc-600 hover:text-red-400 rounded-lg hover:bg-zinc-900 transition mr-1"
-                            title="Delete record"
-                            aria-label={`Delete ${session.routineName} record`}
+                            title={t('history.deleteRecord.action')}
+                            aria-label={t('history.deleteRecord.aria', { name: session.routineName })}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -283,11 +285,11 @@ export const HistoryLog: React.FC<HistoryLogProps> = ({
                       </div>
                       <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800">
                         <Hash className="w-3.5 h-3.5 text-blue-400" />
-                        <span>{completedSets} Completed sets</span>
+                        <span>{completedSets} {t('history.completedSets')}</span>
                       </div>
                       <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800">
                         <BarChart2 className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>Vol {volume.toLocaleString()} {weightUnit}·rep</span>
+                        <span>{t('history.volumeShort')} {volume.toLocaleString()} {weightUnit}·rep</span>
                       </div>
                     </div>
 
@@ -339,10 +341,10 @@ export const HistoryLog: React.FC<HistoryLogProps> = ({
 
       <ConfirmModal
         open={!!sessionToDeleteId}
-        title="Delete Record?"
-        eyebrow="Workout history"
-        message="This permanently removes the selected workout session from your history."
-        confirmLabel="Delete Record"
+        title={t('history.deleteRecord.title')}
+        eyebrow={t('history.deleteRecord.eyebrow')}
+        message={t('history.deleteRecord.message')}
+        confirmLabel={t('history.deleteRecord.action')}
         tone="danger"
         onConfirm={() => {
           if (sessionToDeleteId) {

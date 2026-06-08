@@ -9,6 +9,8 @@ import { AnatomyModel } from './AnatomyModel';
 import { PoseIcon } from './PoseIcon';
 import { getUnitTraits, UNIT_TRAITS, UnitId } from '../data/unit-traits';
 import { Dumbbell, Target, Layers, Flame, Lightbulb, ChevronLeft, Edit2, X, Plus, Trash2, Check, SlidersHorizontal, Shield, Trophy } from 'lucide-react';
+import { categoryLabel, equipmentLabel, muscleLabel } from '../data/localization';
+import { useI18n } from '../i18n';
 
 interface ExerciseDetailProps {
   exercise: Exercise;
@@ -47,6 +49,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
   showExerciseImage = false,
   showHelpText = true
 }) => {
+  const { t } = useI18n();
   const [view, setView] = useState<'front' | 'back'>('front');
   const [isEditing, setIsEditing] = useState(false);
   const topRef = useRef<HTMLDivElement | null>(null);
@@ -106,9 +109,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
   const [prUnit, setPrUnit] = useState<string>('kgs');
 
   // Convert muscle identifiers to standard printable text
-  const formatMuscleName = (muscle: MuscleGroup) => {
-    return muscle.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-  };
+  const formatMuscleName = (muscle: MuscleGroup) => muscleLabel(t, muscle);
 
   // Unsplash category and specific image map
   const getExerciseImage = (ex: Exercise) => {
@@ -215,11 +216,11 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
           onClick={onBack}
           id="detail-back-btn"
           className="p-2.5 rounded-full hover:bg-zinc-900 border border-zinc-900 text-zinc-400 hover:text-white transition-all duration-200"
-          aria-label="Back to dashboard"
+          aria-label={t('active.back')}
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
-        <span className="text-[11px] font-black uppercase tracking-widest text-zinc-400">Exercise Details</span>
+        <span className="text-[11px] font-black uppercase tracking-widest text-zinc-400">{t('detail.title')}</span>
         <button
           onClick={() => {
             setEditName(exercise.name);
@@ -235,8 +236,8 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
           }}
           id="detail-edit-btn"
           className="p-2.5 rounded-full hover:bg-zinc-900 border border-zinc-900 text-zinc-400 hover:text-white transition-all duration-200"
-          title="Customize Exercise Blueprint"
-          aria-label="Customize exercise blueprint"
+          title={t('detail.customize')}
+          aria-label={t('detail.customize')}
         >
           <Edit2 className="w-4 h-4" />
         </button>
@@ -265,12 +266,12 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                 so the user has a visual anchor when arriving from a list. */}
             <PoseIcon name={exercise.poseIcon} size={64} className="shrink-0" />
             <div className="space-y-1 min-w-0">
-              <span className="text-[10px] font-extrabold text-[rgb(var(--accent-400))] uppercase tracking-widest block pl-0.5 capitalize">{exercise.category}</span>
+              <span className="text-[10px] font-extrabold text-[rgb(var(--accent-400))] uppercase tracking-widest block pl-0.5">{categoryLabel(t, exercise.category)}</span>
               <h2 className="text-xl font-black text-white tracking-tight leading-tight truncate">{exercise.name}</h2>
               <p className="text-xs text-zinc-400 font-medium line-clamp-2">{exercise.whatItTrains}</p>
               <div className="flex flex-wrap gap-1.5 pt-1.5">
-                <span className="text-[9px] font-black uppercase tracking-wider bg-[rgb(var(--accent-600))] text-white px-2 py-0.5 rounded-full capitalize">{exercise.category}</span>
-                <span className="text-[9px] font-black uppercase tracking-wider bg-zinc-900 border border-zinc-800 text-zinc-300 px-2 py-0.5 rounded-full capitalize">{exercise.equipment}</span>
+                <span className="text-[9px] font-black uppercase tracking-wider bg-[rgb(var(--accent-600))] text-white px-2 py-0.5 rounded-full">{categoryLabel(t, exercise.category)}</span>
+                <span className="text-[9px] font-black uppercase tracking-wider bg-zinc-900 border border-zinc-800 text-zinc-300 px-2 py-0.5 rounded-full">{equipmentLabel(t, exercise.equipment)}</span>
               </div>
             </div>
           </div>
@@ -290,7 +291,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <SlidersHorizontal className="w-4 h-4 text-[rgb(var(--accent-400))] shrink-0" />
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 truncate">Routine Targets</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 truncate">{t('detail.routineTargets')}</h3>
                 </div>
                 {routineName && (
                   <span className="text-[10px] text-[rgb(var(--accent-400)/0.80)] font-extrabold uppercase tracking-wider truncate max-w-[48%]">{routineName}</span>
@@ -299,7 +300,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
 
               {/* Unit */}
               <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-bold text-zinc-300">Measured in</span>
+                <span className="text-xs font-bold text-zinc-300">{t('detail.measuredIn')}</span>
                 <select
                   value={plannedConfig.unit || 'reps'}
                   onChange={(e) => handleChangePlannedUnit(e.target.value)}
@@ -312,7 +313,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
               </div>
 
               <div className="flex items-center justify-between border-t border-[rgb(var(--accent-900)/0.20)] pt-3">
-                <span className="text-xs font-bold text-zinc-300">Current PR</span>
+                <span className="text-xs font-bold text-zinc-300">{t('detail.currentPr')}</span>
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-mono font-black text-[rgb(var(--accent-300))] bg-[rgb(var(--accent-600)/0.10)] border border-[rgb(var(--accent-500)/0.20)] px-2.5 py-1.5 rounded-xl">
                     {routinePrSummary.value > 0 ? (
@@ -322,7 +323,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                         <span className="text-[rgb(var(--accent-400))] uppercase tracking-widest text-[9px] ml-1">{prTraits.shortLabel}</span>
                       </>
                     ) : (
-                      <span className="text-zinc-500">No PR yet</span>
+                      <span className="text-zinc-500">{t('detail.noPr')}</span>
                     )}
                   </span>
                   {onSaveManualPr && (
@@ -331,7 +332,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                       onClick={openPrEditor}
                       className="text-[9px] text-[rgb(var(--accent-400))] hover:text-[rgb(var(--accent-300))] font-black tracking-widest uppercase bg-[rgb(var(--accent-600)/0.15)] px-2.5 py-1.5 rounded-lg border border-[rgb(var(--accent-500)/0.25)] hover:bg-[rgb(var(--accent-600)/0.20)] transition"
                     >
-                      {routinePrSummary.value > 0 ? 'Edit' : 'Log PR'}
+                      {routinePrSummary.value > 0 ? t('detail.edit') : t('dashboard.logPr')}
                     </button>
                   )}
                 </div>
@@ -340,12 +341,12 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
               {/* Sets (only when the unit supports multiple sets) */}
               {traits.supportsSets && (
                 <div className="flex items-center justify-between border-t border-[rgb(var(--accent-900)/0.20)] pt-3">
-                  <span className="text-xs font-bold text-zinc-300">Sets</span>
+                  <span className="text-xs font-bold text-zinc-300">{t('detail.sets')}</span>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => onUpdatePlannedConfig({ sets: Math.max(1, plannedConfig.sets - 1) })}
                       className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-600 flex items-center justify-center text-sm font-black transition"
-                      aria-label="Decrease planned sets"
+                      aria-label={t('detail.decreasePlannedSets')}
                     >
                       −
                     </button>
@@ -353,7 +354,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                     <button
                       onClick={() => onUpdatePlannedConfig({ sets: plannedConfig.sets + 1 })}
                       className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-600 flex items-center justify-center text-sm font-black transition"
-                      aria-label="Increase planned sets"
+                      aria-label={t('detail.increasePlannedSets')}
                     >
                       +
                     </button>
@@ -363,7 +364,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
 
               {/* Reps / target value (free text — supports ranges like "6-10") */}
               <div className="flex items-center justify-between border-t border-[rgb(var(--accent-900)/0.20)] pt-3 gap-3">
-                <span className="text-xs font-bold text-zinc-300">{isRepBased ? 'Reps' : `Target ${traits.shortLabel}`}</span>
+                <span className="text-xs font-bold text-zinc-300">{isRepBased ? t('detail.reps') : t('detail.targetWithUnit', { unit: traits.shortLabel })}</span>
                 <input
                   type="text"
                   value={plannedConfig.reps}
@@ -376,12 +377,12 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
               {/* Working weight (only for weight×reps movements) */}
               {isWeight && (
                 <div className="flex items-center justify-between border-t border-[rgb(var(--accent-900)/0.20)] pt-3">
-                  <span className="text-xs font-bold text-zinc-300">Working {traits.shortLabel}</span>
+                  <span className="text-xs font-bold text-zinc-300">{t('detail.workingUnit', { unit: traits.shortLabel })}</span>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => onUpdatePlannedConfig({ targetWeight: Math.max(0, (plannedConfig.targetWeight || 0) - traits.step) })}
                       className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-600 flex items-center justify-center text-sm font-black transition"
-                      aria-label={`Decrease working weight by ${traits.step} ${traits.shortLabel}`}
+                      aria-label={t('detail.decreaseWorkingWeight', { amount: traits.step, unit: traits.shortLabel })}
                     >
                       −
                     </button>
@@ -395,13 +396,13 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                       onBlur={commitWeightDraft}
                       onKeyDown={(e) => { if (e.key === 'Enter') { commitWeightDraft(); (e.target as HTMLInputElement).blur(); } }}
                       placeholder="—"
-                      aria-label={`Working weight in ${traits.shortLabel}, 0.25 increments`}
+                      aria-label={t('detail.workingWeightAria', { unit: traits.shortLabel })}
                       className="w-14 text-center font-mono text-sm font-black text-white bg-zinc-950 border border-zinc-800 rounded-lg px-1 py-1 focus:outline-none focus:border-[rgb(var(--accent-600))]"
                     />
                     <button
                       onClick={() => onUpdatePlannedConfig({ targetWeight: (plannedConfig.targetWeight || 0) + traits.step })}
                       className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-600 flex items-center justify-center text-sm font-black transition"
-                      aria-label={`Increase working weight by ${traits.step} ${traits.shortLabel}`}
+                      aria-label={t('detail.increaseWorkingWeight', { amount: traits.step, unit: traits.shortLabel })}
                     >
                       +
                     </button>
@@ -411,7 +412,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
 
               {showHelpText && (
                 <p className="text-[10px] text-zinc-600 leading-relaxed border-t border-[rgb(var(--accent-900)/0.20)] pt-3">
-                  Changes save to <span className="text-zinc-400 font-semibold">{routineName || 'this routine'}</span> instantly. Reps stay visible alongside the working weight when you train.
+                  {t('detail.changesSave', { routine: routineName || t('detail.thisRoutine') })}
                 </p>
               )}
 
@@ -420,10 +421,10 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                   type="button"
                   onClick={onRemovePlannedConfig}
                   className="w-full border-t border-[rgb(var(--accent-900)/0.20)] pt-3 text-[10px] font-black uppercase tracking-widest text-red-400/80 hover:text-red-300 transition flex items-center justify-center gap-2"
-                  aria-label={`Remove ${exercise.name} from routine`}
+                  aria-label={t('dashboard.removeExerciseFromRoutine', { name: exercise.name })}
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  Remove from routine
+                  {t('detail.removeFromRoutine')}
                 </button>
               )}
             </div>
@@ -434,9 +435,9 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
         <div className="bg-zinc-900/40 border border-zinc-900 rounded-3xl p-5 relative overflow-hidden shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <span className="text-xs font-bold uppercase tracking-widest text-zinc-400">Anatomical Muscle Targets</span>
+              <span className="text-xs font-bold uppercase tracking-widest text-zinc-400">{t('detail.anatomyTargets')}</span>
               {showHelpText && (
-                <p className="text-[10px] text-zinc-500 font-semibold">Front and back primary focuses</p>
+                <p className="text-[10px] text-zinc-500 font-semibold">{t('detail.anatomyHelp')}</p>
               )}
             </div>
 
@@ -450,7 +451,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                     : 'text-zinc-500 hover:text-zinc-300'
                 }`}
               >
-                Front
+                {t('detail.front')}
               </button>
               <button
                 onClick={() => setView('back')}
@@ -460,7 +461,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                     : 'text-zinc-500 hover:text-zinc-300'
                 }`}
               >
-                Back
+                {t('detail.back')}
               </button>
             </div>
           </div>
@@ -473,7 +474,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                 <div className="space-y-1 py-1 border-l-2 border-blue-500 pl-3">
                   <div className="flex items-center gap-1.5">
                     <Target className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                    <span className="text-zinc-500 uppercase tracking-wider font-extrabold text-[9px]">Primary focus</span>
+                    <span className="text-zinc-500 uppercase tracking-wider font-extrabold text-[9px]">{t('detail.primaryFocus')}</span>
                   </div>
                   <div className="text-zinc-100 font-extrabold capitalize text-xs">
                     {exercise.primaryMuscles.map(formatMuscleName).join(', ')}
@@ -485,7 +486,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                 <div className="space-y-1 py-1 border-l-2 border-[rgb(var(--accent-500))] pl-3">
                   <div className="flex items-center gap-1.5">
                     <Layers className="w-3.5 h-3.5 text-[rgb(var(--accent-400))] shrink-0" />
-                    <span className="text-zinc-500 uppercase tracking-wider font-extrabold text-[9px]">Synergist muscles</span>
+                    <span className="text-zinc-500 uppercase tracking-wider font-extrabold text-[9px]">{t('detail.synergists')}</span>
                   </div>
                   <div className="text-zinc-300 font-bold capitalize leading-relaxed text-xs">
                     {exercise.secondaryMuscles.map(formatMuscleName).join(', ')}
@@ -496,10 +497,10 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
               <div className="space-y-1 py-1 border-l-2 border-zinc-700 pl-3">
                 <div className="flex items-center gap-1.5">
                   <Dumbbell className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                  <span className="text-zinc-500 uppercase tracking-wider font-extrabold text-[9px]">Requirement</span>
+                  <span className="text-zinc-500 uppercase tracking-wider font-extrabold text-[9px]">{t('detail.requirement')}</span>
                 </div>
                 <div className="text-zinc-400 capitalize font-bold text-xs">
-                  {exercise.equipment}
+                  {equipmentLabel(t, exercise.equipment)}
                 </div>
               </div>
             </div>
@@ -525,7 +526,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
             <Target className="w-5 h-5" />
           </div>
           <div className="space-y-1">
-            <h3 className="text-xs font-extrabold text-zinc-400 tracking-wider uppercase">What it trains</h3>
+            <h3 className="text-xs font-extrabold text-zinc-400 tracking-wider uppercase">{t('detail.whatItTrains')}</h3>
             <p className="text-sm text-zinc-200 leading-relaxed font-semibold">
               {exercise.whatItTrains}
             </p>
@@ -538,7 +539,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
             <Shield className="w-5 h-5" />
           </div>
           <div className="space-y-2 w-full">
-            <h3 className="text-xs font-extrabold text-zinc-400 tracking-wider uppercase">Setup Positioning</h3>
+            <h3 className="text-xs font-extrabold text-zinc-400 tracking-wider uppercase">{t('detail.setup')}</h3>
             <ul className="space-y-2.5 text-sm text-zinc-300">
               {exercise.setup.map((sh, idx) => (
                 <li key={idx} className="flex items-start gap-2.5 leading-relaxed font-medium">
@@ -556,7 +557,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
             <Flame className="w-5 h-5" />
           </div>
           <div className="space-y-2 w-full">
-            <h3 className="text-xs font-extrabold text-zinc-400 tracking-wider uppercase">Execution Routine</h3>
+            <h3 className="text-xs font-extrabold text-zinc-400 tracking-wider uppercase">{t('detail.execution')}</h3>
             <ol className="space-y-3.5 text-sm text-zinc-300">
               {exercise.howToPerform.map((st, idx) => (
                 <li key={idx} className="flex gap-3 leading-relaxed font-semibold">
@@ -576,7 +577,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
             <Lightbulb className="w-5 h-5 animate-pulse" />
           </div>
           <div className="space-y-1">
-            <h4 className="text-[10px] font-black text-blue-400 tracking-wider uppercase">Pro Coach Tip</h4>
+            <h4 className="text-[10px] font-black text-blue-400 tracking-wider uppercase">{t('detail.coachTip')}</h4>
             <p className="text-sm text-blue-200/90 leading-relaxed font-semibold">
               {exercise.coachingTip}
             </p>
@@ -591,7 +592,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
             <button
               onClick={() => setShowPrEditor(false)}
               className="absolute top-4 right-4 p-2 text-zinc-500 hover:text-zinc-300 rounded-xl hover:bg-zinc-900/50 transition duration-150"
-              aria-label="Close record modal"
+              aria-label={t('pr.close')}
             >
               <X className="w-4 h-4" />
             </button>
@@ -601,14 +602,14 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                 <Trophy className="w-5 h-5 fill-current" />
               </div>
               <div>
-                <h3 className="font-extrabold text-xs text-zinc-100 uppercase tracking-wider">Configure Record</h3>
+                <h3 className="font-extrabold text-xs text-zinc-100 uppercase tracking-wider">{t('dashboard.configureRecord')}</h3>
                 <p className="text-[10px] text-zinc-400 font-bold">{exercise.name}</p>
               </div>
             </div>
 
             <div className="space-y-4 my-5">
               <div className="flex flex-col gap-1.5">
-                <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest pl-0.5">Record Weight / Value</label>
+                <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest pl-0.5">{t('dashboard.recordValue')}</label>
                 <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2.5">
                   <input
                     type="number"
@@ -616,7 +617,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                     value={prValue || ''}
                     onChange={(e) => setPrValue(parseFloat(e.target.value) || 0)}
                     className="w-full bg-transparent font-bold text-xs text-zinc-100 font-mono focus:outline-none"
-                    placeholder="e.g. 85"
+                    placeholder={t('pr.valuePlaceholder')}
                   />
                 </div>
               </div>
@@ -624,8 +625,8 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
               {getUnitTraits(prUnit).metric !== 'cardio-distance' && getUnitTraits(prUnit).metric !== 'cardio-duration' && (
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest pl-0.5 flex items-center justify-between">
-                    <span>Reps completed</span>
-                    <span className="text-zinc-600 normal-case tracking-normal font-semibold">Optional</span>
+                    <span>{t('dashboard.repsCompleted')}</span>
+                    <span className="text-zinc-600 normal-case tracking-normal font-semibold">{t('dashboard.optional')}</span>
                   </label>
                   <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2.5">
                     <input
@@ -634,14 +635,14 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                       value={prReps || ''}
                       onChange={(e) => setPrReps(parseInt(e.target.value) || 0)}
                       className="w-full bg-transparent font-bold text-xs text-zinc-100 font-mono focus:outline-none"
-                      placeholder="leave blank for value-only"
+                      placeholder={t('pr.repsPlaceholder')}
                     />
                   </div>
                 </div>
               )}
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest pl-0.5">Measurement Unit</label>
+                <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest pl-0.5">{t('dashboard.measurementUnit')}</label>
                 <select
                   value={prUnit}
                   onChange={(e) => setPrUnit(e.target.value)}
@@ -663,7 +664,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                 onClick={() => setShowPrEditor(false)}
                 className="flex-1 py-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-400 rounded-xl text-[10px] uppercase font-black tracking-wider transition"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={() => {
@@ -672,7 +673,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                 }}
                 className="flex-1 py-3 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-600))] text-white rounded-xl text-[10px] uppercase font-black tracking-wider hover:from-[rgb(var(--accent-500))] hover:to-[rgb(var(--accent-500))] transition shadow-lg"
               >
-                Save Record
+                {t('dashboard.saveRecord')}
               </button>
             </div>
           </div>
@@ -687,15 +688,15 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-900 bg-zinc-950 sticky top-0 z-10">
               <div>
-                <h3 className="text-base font-black text-white tracking-tight">Edit Exercise Blueprint</h3>
+                <h3 className="text-base font-black text-white tracking-tight">{t('detail.editBlueprint')}</h3>
                 {showHelpText && (
-                  <p className="text-[10px] text-zinc-500 font-bold">Customize name, equipment style and targeted setups</p>
+                  <p className="text-[10px] text-zinc-500 font-bold">{t('detail.editHelp')}</p>
                 )}
               </div>
               <button 
                 onClick={() => setIsEditing(false)}
                 className="p-2 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded-full transition"
-                aria-label="Close exercise editor"
+                aria-label={t('detail.closeEditor')}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -706,12 +707,12 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
               
               {/* Name */}
               <div className="space-y-1.5">
-                <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">Exercise Name</label>
+                <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">{t('detail.exerciseName')}</label>
                 <input 
                   type="text"
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  placeholder="e.g. Incline Bench Press"
+                  placeholder={t('detail.exerciseName.placeholder')}
                   className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[rgb(var(--accent-600))] focus:ring-1 focus:ring-[rgb(var(--accent-600))] transition"
                 />
               </div>
@@ -719,48 +720,39 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
               {/* Grid 2x2 */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">Category</label>
+                  <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">{t('detail.category')}</label>
                   <select 
                     value={editCategory}
                     onChange={(e) => setEditCategory(e.target.value as Exercise['category'])}
                     className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:border-[rgb(var(--accent-600))] transition"
                   >
-                    <option value="chest">Chest</option>
-                    <option value="back">Back</option>
-                    <option value="legs">Legs</option>
-                    <option value="shoulders">Shoulders</option>
-                    <option value="arms">Arms</option>
-                    <option value="core">Core</option>
-                    <option value="cardio">Cardio</option>
+                    {(['chest', 'back', 'legs', 'shoulders', 'arms', 'core', 'cardio'] as Exercise['category'][]).map(category => (
+                      <option key={category} value={category}>{categoryLabel(t, category)}</option>
+                    ))}
                   </select>
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">Equipment</label>
+                  <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">{t('detail.equipment')}</label>
                   <select 
                     value={editEquipment}
                     onChange={(e) => setEditEquipment(e.target.value as Exercise['equipment'])}
                     className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:border-[rgb(var(--accent-600))] transition"
                   >
-                    <option value="barbell">Barbell</option>
-                    <option value="dumbbell">Dumbbell</option>
-                    <option value="machine">Machine</option>
-                    <option value="cable">Cable</option>
-                    <option value="bodyweight">Bodyweight</option>
-                    <option value="bands">Resistance Bands</option>
-                    <option value="kettlebell">Kettlebell</option>
-                    <option value="cardio">Cardio Equipment</option>
+                    {(['barbell', 'dumbbell', 'machine', 'cable', 'bodyweight', 'bands', 'kettlebell', 'cardio'] as Exercise['equipment'][]).map(equipment => (
+                      <option key={equipment} value={equipment}>{equipmentLabel(t, equipment)}</option>
+                    ))}
                   </select>
                 </div>
               </div>
 
               {/* What it trains */}
               <div className="space-y-1.5">
-                <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">What it Trains (Description)</label>
+                <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">{t('detail.whatItTrainsEdit')}</label>
                 <textarea 
                   value={editWhatItTrains}
                   onChange={(e) => setEditWhatItTrains(e.target.value)}
-                  placeholder="Summarize target zones or movements."
+                  placeholder={t('detail.whatItTrains.placeholder')}
                   rows={2}
                   className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-[rgb(var(--accent-600))] focus:ring-1 focus:ring-[rgb(var(--accent-600))] transition resize-none"
                 />
@@ -768,11 +760,11 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
 
               {/* Coaching Tip */}
               <div className="space-y-1.5">
-                <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">Pro Coaching Tip</label>
+                <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">{t('detail.coachTip')}</label>
                 <textarea 
                   value={editCoachingTip}
                   onChange={(e) => setEditCoachingTip(e.target.value)}
-                  placeholder="What is a key form cue?"
+                  placeholder={t('detail.coachTip.placeholder')}
                   rows={2}
                   className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-[rgb(var(--accent-600))] focus:ring-1 focus:ring-[rgb(var(--accent-600))] transition resize-none"
                 />
@@ -781,12 +773,12 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
               {/* Setup steps */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">Setup Instructions</label>
+                  <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">{t('detail.setupInstructions')}</label>
                   <button 
                     onClick={addSetupStep}
                     className="flex items-center gap-1 text-[10px] font-black uppercase text-[rgb(var(--accent-400))] hover:text-[rgb(var(--accent-300))]"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Add Step
+                    <Plus className="w-3.5 h-3.5" /> {t('detail.addStep')}
                   </button>
                 </div>
                 
@@ -800,20 +792,20 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                         type="text"
                         value={step}
                         onChange={(e) => updateSetupStep(idx, e.target.value)}
-                        placeholder={`Step ${idx + 1} action`}
+                        placeholder={t('detail.setupStep.placeholder', { number: idx + 1 })}
                         className="flex-grow bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[rgb(var(--accent-600))]"
                       />
                       <button 
                         onClick={() => removeSetupStep(idx)}
                         className="p-2 hover:bg-zinc-900 text-zinc-500 hover:text-red-400 rounded-xl transition"
-                        aria-label={`Remove setup step ${idx + 1}`}
+                        aria-label={t('detail.removeSetupStep', { number: idx + 1 })}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   ))}
                   {editSetup.length === 0 && (
-                    <p className="text-[11px] text-zinc-500 border border-dashed border-zinc-900 p-4 rounded-xl text-center">No setup instructions defined. Tap Add Step above.</p>
+                    <p className="text-[11px] text-zinc-500 border border-dashed border-zinc-900 p-4 rounded-xl text-center">{t('detail.noSetup')}</p>
                   )}
                 </div>
               </div>
@@ -821,12 +813,12 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
               {/* Execution steps */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">How to Perform</label>
+                  <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">{t('detail.execution')}</label>
                   <button 
                     onClick={addPerformStep}
                     className="flex items-center gap-1 text-[10px] font-black uppercase text-[rgb(var(--accent-400))] hover:text-[rgb(var(--accent-300))]"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Add Step
+                    <Plus className="w-3.5 h-3.5" /> {t('detail.addStep')}
                   </button>
                 </div>
                 
@@ -840,28 +832,28 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                         type="text"
                         value={step}
                         onChange={(e) => updatePerformStep(idx, e.target.value)}
-                        placeholder={`Perform action step ${idx + 1}`}
+                        placeholder={t('detail.performStep.placeholder', { number: idx + 1 })}
                         className="flex-grow bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[rgb(var(--accent-600))]"
                       />
                       <button 
                         onClick={() => removePerformStep(idx)}
                         className="p-2 hover:bg-zinc-900 text-zinc-500 hover:text-red-400 rounded-xl transition"
-                        aria-label={`Remove performance step ${idx + 1}`}
+                        aria-label={t('detail.removePerformanceStep', { number: idx + 1 })}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   ))}
                   {editHowToPerform.length === 0 && (
-                    <p className="text-[11px] text-zinc-500 border border-dashed border-zinc-900 p-4 rounded-xl text-center">No performance directions defined. Tap Add Step above.</p>
+                    <p className="text-[11px] text-zinc-500 border border-dashed border-zinc-900 p-4 rounded-xl text-center">{t('detail.noPerformance')}</p>
                   )}
                 </div>
               </div>
 
               <div className="space-y-2">
                 <div>
-                  <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">Primary Muscles (target)</label>
-                  <p className="text-[9px] text-zinc-600 font-semibold mt-0.5">Tap to toggle. These power the anatomy diagram.</p>
+                  <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">{t('customExercise.primary')}</label>
+                  <p className="text-[9px] text-zinc-600 font-semibold mt-0.5">{t('customExercise.muscleHint')}</p>
                 </div>
                 <div className="max-h-32 overflow-y-auto rounded-2xl border border-zinc-900 bg-zinc-950/40 p-2 flex flex-wrap gap-1.5">
                   {ALL_MUSCLES.map(muscle => {
@@ -872,7 +864,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                         type="button"
                         onClick={() => toggleEditMuscle(muscle, editPrimaryMuscles, setEditPrimaryMuscles)}
                         aria-pressed={isSelected}
-                        aria-label={`Toggle primary ${formatMuscleName(muscle)}`}
+                        aria-label={t('customExercise.togglePrimary', { muscle: formatMuscleName(muscle) })}
                         className={`px-2.5 py-1.5 rounded-full text-[10px] font-black capitalize transition ${
                           isSelected ? 'bg-[rgb(var(--accent-600))] text-white' : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
                         }`}
@@ -886,8 +878,8 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
 
               <div className="space-y-2">
                 <div>
-                  <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">Secondary Muscles (synergists)</label>
-                  <p className="text-[9px] text-zinc-600 font-semibold mt-0.5">Tap to toggle. These power the anatomy diagram.</p>
+                  <label className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">{t('customExercise.secondary')}</label>
+                  <p className="text-[9px] text-zinc-600 font-semibold mt-0.5">{t('customExercise.muscleHint')}</p>
                 </div>
                 <div className="rounded-2xl border border-zinc-900 bg-zinc-950/40 p-2 flex flex-wrap gap-1.5">
                   {ALL_MUSCLES.map(muscle => {
@@ -898,7 +890,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                         type="button"
                         onClick={() => toggleEditMuscle(muscle, editSecondaryMuscles, setEditSecondaryMuscles)}
                         aria-pressed={isSelected}
-                        aria-label={`Toggle secondary ${formatMuscleName(muscle)}`}
+                        aria-label={t('customExercise.toggleSecondary', { muscle: formatMuscleName(muscle) })}
                         className={`px-2.5 py-1.5 rounded-full text-[10px] font-black capitalize transition ${
                           isSelected ? 'bg-[rgb(var(--accent-600))] text-white' : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
                         }`}
@@ -918,14 +910,14 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                 onClick={() => setIsEditing(false)}
                 className="flex-grow py-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-xl text-xs font-bold transition"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleSave}
                 disabled={!editName.trim()}
                 className="flex-grow py-3 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-600))] hover:from-[rgb(var(--accent-500))] rounded-xl text-xs font-black tracking-wider text-white flex items-center justify-center gap-2 duration-150 disabled:opacity-40"
               >
-                <Check className="w-4 h-4" /> SAVE CHANGES
+                <Check className="w-4 h-4" /> {t('detail.saveChanges')}
               </button>
             </div>
 
