@@ -51,7 +51,10 @@ interface DashboardProps {
   onUpdateExercises: (updated: Exercise[]) => void;
   onUpdateSettings: (updated: WorkoutSettings) => void;
   manualPRs: Record<string, ManualPRRecord>;
+  hiddenPRs?: Record<string, true>;
+  showPrTracking?: boolean;
   onSaveManualPr: (exerciseId: string, value: number, reps: number, unit: string) => void;
+  onHideManualPr: (exerciseId: string) => void;
   onOpenCalendarPlanner: () => void;
   selectedRoutineId: string;
   onSelectRoutineId: (id: string) => void;
@@ -93,7 +96,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onUpdateExercises,
   onUpdateSettings,
   manualPRs,
+  hiddenPRs = {},
+  showPrTracking = true,
   onSaveManualPr,
+  onHideManualPr,
   onOpenCalendarPlanner,
   selectedRoutineId,
   onSelectRoutineId,
@@ -434,6 +440,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const map = new Map<string, PRSummary>();
 
     const getSummary = (exerciseId: string) => {
+      if (hiddenPRs[exerciseId]) {
+        const hiddenSummary = { maxWeight: 0, maxRepsAtMaxWeight: 0, manualUnit: undefined };
+        map.set(exerciseId, hiddenSummary);
+        return hiddenSummary;
+      }
+
       let summary = map.get(exerciseId);
       if (!summary) {
         const manual = manualPRs[exerciseId];
@@ -455,6 +467,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       history.forEach(session => {
         if (session.exercises && Array.isArray(session.exercises)) {
           session.exercises.forEach(loggedEx => {
+            if (hiddenPRs[loggedEx.exerciseId]) return;
             const summary = getSummary(loggedEx.exerciseId);
 
             if (loggedEx.sets && Array.isArray(loggedEx.sets)) {
@@ -475,7 +488,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
 
     return map;
-  }, [history, manualPRs]);
+  }, [history, manualPRs, hiddenPRs]);
 
   const currentSelectedRoutine = routines.find(r => r.id === selectedRoutineId) || routines[0];
 
@@ -750,7 +763,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             );
                           })()}
 
-                          {maxWeight > 0 ? (() => {
+                          {showPrTracking && (maxWeight > 0 ? (() => {
                             // Mirror the sets-reps badge's two-row structure:
                             // value (with optional × reps) on top, unit on
                             // bottom, so the right strip stays visually
@@ -792,7 +805,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             >
                               {t('dashboard.logPr')}
                             </button>
-                          )}
+                          ))}
                         </div>
                       </div>
                     </div>
@@ -1531,8 +1544,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {/* MODAL 3: INLINE PERSONAL RECORD (PR) MANIPULATOR */}
-      {editingPrExerciseId && (() => {
+      {showPrTracking && editingPrExerciseId && (() => {
         const linkedEx = exercisesList.find(e => e.id === editingPrExerciseId);
+        const existingPr = exercisePRMap.get(editingPrExerciseId);
+        const canRemovePr = !!existingPr && existingPr.maxWeight > 0;
         return (
           <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
             <div className="bg-zinc-950 border border-zinc-900 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative select-none animate-in fade-in zoom-in-95 duration-200">
@@ -1610,6 +1625,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   </select>
                 </div>
               </div>
+
+              {canRemovePr && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onHideManualPr(editingPrExerciseId);
+                    setEditingPrExerciseId(null);
+                  }}
+                  className="w-full mb-3 py-2.5 bg-red-950/10 border border-red-900/30 hover:bg-red-950/20 text-red-300/80 hover:text-red-200 rounded-xl text-[10px] uppercase font-black tracking-wider transition"
+                >
+                  {t('pr.remove')}
+                </button>
+              )}
 
               <div className="flex gap-2.5">
                 <button

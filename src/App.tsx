@@ -4,7 +4,7 @@
  */
 
 import { useRef, useState, useEffect } from 'react';
-import { Routine, Exercise, PlannedExercise, WorkoutSession, WorkoutSettings, BodyWeightEntry, ManualPRRecord, ThemeHue, LanguageCode } from './types';
+import { Routine, Exercise, PlannedExercise, WorkoutSession, WorkoutSettings, BodyWeightEntry, ManualPRRecord, ThemeHue, LanguageCode, ExpiredWorkoutReview } from './types';
 import { EXERCISES } from './data/exercises';
 import { DEFAULT_ROUTINES } from './data/routines';
 import { Dashboard } from './components/Dashboard';
@@ -29,6 +29,8 @@ const GYM_STORAGE_KEYS = [
   'gym_settings',
   'gym_schedule',
   'gym_manual_prs',
+  'gym_hidden_prs',
+  'gym_pending_session_review',
   'gym_bodyweight',
   'gym_active_session_data'
 ] as const;
@@ -67,6 +69,8 @@ const normalizeSettings = (settings: WorkoutSettings): WorkoutSettings => ({
   autoStartRest: settings.autoStartRest ?? true,
   language: settings.language ?? 'en',
   weightIncrement: clampWeightIncrement(settings.weightIncrement),
+  showPrTracking: settings.showPrTracking ?? true,
+  reviewExpiredWorkouts: settings.reviewExpiredWorkouts ?? true,
 });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -90,7 +94,14 @@ const isStringifiedJsonObject = (value: string) => {
 
 const validateImportValue = (key: typeof GYM_STORAGE_KEYS[number], value: string) => {
   if (key.endsWith('_version')) return /^\d+$/.test(value);
-  if (key === 'gym_settings' || key === 'gym_schedule' || key === 'gym_manual_prs' || key === 'gym_active_session_data') {
+  if (
+    key === 'gym_settings'
+    || key === 'gym_schedule'
+    || key === 'gym_manual_prs'
+    || key === 'gym_hidden_prs'
+    || key === 'gym_pending_session_review'
+    || key === 'gym_active_session_data'
+  ) {
     return isStringifiedJsonObject(value);
   }
   return isStringifiedJsonArray(value);
@@ -164,6 +175,14 @@ export default function App() {
       return {};
     }
   });
+  const [hiddenPRs, setHiddenPRs] = useState<Record<string, true>>(() => {
+    try {
+      const stored = localStorage.getItem('gym_hidden_prs');
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
   const [settings, setSettings] = useState<WorkoutSettings>({
     weightUnit: 'kg',
     distanceUnit: 'km',
@@ -172,10 +191,16 @@ export default function App() {
     vibrationEnabled: true,
     autoStartRest: true,
     maxWorkoutDuration: 120,
-    language: 'en'
+    language: 'en',
+    showPrTracking: true,
+    reviewExpiredWorkouts: true
   });
 
   const [autologMessage, setAutologMessage] = useState<string | null>(null);
+  const [pendingExpiredReview, setPendingExpiredReview] = useState<ExpiredWorkoutReview | null>(() =>
+    safeParse<ExpiredWorkoutReview | null>('gym_pending_session_review', null)
+  );
+  const [reviewExerciseState, setReviewExerciseState] = useState<Record<string, boolean>>({});
 
   // Calendar Planner Event Mapping State (Weekday -> Routine ID)
   const [plannedSchedule, setPlannedSchedule] = useState<Record<string, string>>({});
@@ -236,6 +261,14 @@ export default function App() {
   useEffect(() => {
     if (!localStorage.getItem('gym_onboarding_seen') && !localStorage.getItem('gym_active_session_data')) {
       startOnboarding();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (pendingExpiredReview) {
+      seedExpiredReviewState(pendingExpiredReview);
+      setCurrentScreen('dashboard');
+      setActiveTab('history');
     }
   }, []);
 
@@ -364,25 +397,31 @@ export default function App() {
           }
 
           if (elapsed >= maxLimitSeconds) {
-            // Auto finalize the session!
-            const autoSession = {
-              id: `autosession-${Date.now()}`,
+            const review: ExpiredWorkoutReview = {
               routineId: savedRoutine.id,
-              routineName: savedRoutine.name || 'Auto-logged Session',
+              routineName: savedRoutine.name || t('active.session'),
               startTime: saved.sessionStartTime || (Date.now() - (elapsed * 1000)),
-              endTime: Date.now(),
               elapsedSeconds: maxLimitSeconds,
-              exercises: saved.loggedExercises || [],
-              notes: (saved.notes || '') + ' \n[Auto-logged on refresh: Reached safety timer limit]'
+              loggedExercises: saved.loggedExercises || [],
+              notes: saved.notes || '',
+              maxLimitMinutes
             };
+
+            localStorage.removeItem('gym_active_session_data');
+
+            if (settings.reviewExpiredWorkouts ?? true) {
+              handleExpiredWorkoutReview(review);
+              return;
+            }
+
+            // Auto finalize the session!
+            const autoSession = buildExpiredSession(review, review.loggedExercises);
 
             const storedHistory = localStorage.getItem('gym_history');
             const parsedHistory = storedHistory ? JSON.parse(storedHistory) : [];
             const updatedHistory = [autoSession, ...parsedHistory];
             setHistory(updatedHistory);
             localStorage.setItem('gym_history', JSON.stringify(updatedHistory));
-
-            localStorage.removeItem('gym_active_session_data');
             
             setAutologMessage(t('autolog.message.previous', { name: savedRoutine.name, minutes: maxLimitMinutes }));
             setCurrentScreen('dashboard');
@@ -396,7 +435,7 @@ export default function App() {
         console.error("Failed to restore previous session on load", err);
       }
     }
-  }, [routines]);
+  }, [routines, settings.maxWorkoutDuration, settings.reviewExpiredWorkouts]);
 
   useEffect(() => {
     if (currentScreen !== 'dashboard') {
@@ -481,6 +520,16 @@ export default function App() {
     localStorage.setItem('gym_bodyweight', JSON.stringify(updated));
   };
 
+  const saveSessionToHistory = (session: WorkoutSession) => {
+    const updatedHistory = [session, ...history];
+    setHistory(updatedHistory);
+    localStorage.setItem('gym_history', JSON.stringify(updatedHistory));
+    setResumableRoutine(null);
+    setResumeElapsed(0);
+    setCurrentScreen('dashboard');
+    setActiveTab('history');
+  };
+
   const handleSaveManualPr = (exerciseId: string, value: number, reps: number, unit: string) => {
     const updated = {
       ...manualPRs,
@@ -488,6 +537,82 @@ export default function App() {
     };
     setManualPRs(updated);
     localStorage.setItem('gym_manual_prs', JSON.stringify(updated));
+
+    const nextHidden = { ...hiddenPRs };
+    delete nextHidden[exerciseId];
+    setHiddenPRs(nextHidden);
+    localStorage.setItem('gym_hidden_prs', JSON.stringify(nextHidden));
+  };
+
+  const handleHideManualPr = (exerciseId: string) => {
+    const nextManual = { ...manualPRs };
+    delete nextManual[exerciseId];
+    setManualPRs(nextManual);
+    localStorage.setItem('gym_manual_prs', JSON.stringify(nextManual));
+
+    const nextHidden = { ...hiddenPRs, [exerciseId]: true as const };
+    setHiddenPRs(nextHidden);
+    localStorage.setItem('gym_hidden_prs', JSON.stringify(nextHidden));
+  };
+
+  const seedExpiredReviewState = (review: ExpiredWorkoutReview) => {
+    setReviewExerciseState(Object.fromEntries(
+      review.loggedExercises.map(logged => [
+        logged.exerciseId,
+        logged.sets.some(set => set.completed)
+      ])
+    ));
+  };
+
+  const handleExpiredWorkoutReview = (review: ExpiredWorkoutReview) => {
+    localStorage.setItem('gym_pending_session_review', JSON.stringify(review));
+    localStorage.removeItem('gym_active_session_data');
+    setPendingExpiredReview(review);
+    seedExpiredReviewState(review);
+    setCurrentScreen('dashboard');
+    setActiveTab('history');
+  };
+
+  const clearExpiredReview = () => {
+    localStorage.removeItem('gym_pending_session_review');
+    setPendingExpiredReview(null);
+    setReviewExerciseState({});
+  };
+
+  const buildExpiredSession = (review: ExpiredWorkoutReview, exercises: typeof review.loggedExercises): WorkoutSession => ({
+    id: `autosession-${Date.now()}`,
+    routineId: review.routineId,
+    routineName: review.routineName || t('active.session'),
+    startTime: review.startTime,
+    endTime: Date.now(),
+    elapsedSeconds: review.elapsedSeconds,
+    exercises,
+    notes: (review.notes?.trim() ? `${review.notes.trim()} \n` : '') + `[Auto-logged after reaching the maximum limit of ${review.maxLimitMinutes} minutes]`
+  });
+
+  const handleSaveReviewedExpiredWorkout = () => {
+    if (!pendingExpiredReview) return;
+    const reviewedExercises = pendingExpiredReview.loggedExercises
+      .filter(logged => reviewExerciseState[logged.exerciseId])
+      .map(logged => ({
+        ...logged,
+        sets: logged.sets.map(set => ({ ...set, completed: true }))
+      }));
+
+    if (reviewedExercises.length === 0) return;
+
+    const reviewedSession = buildExpiredSession(pendingExpiredReview, reviewedExercises);
+    saveSessionToHistory(reviewedSession);
+    clearExpiredReview();
+    setAutologMessage(t('autolog.reviewSaved', { name: pendingExpiredReview.routineName }));
+  };
+
+  const handlePlainExpiredWorkoutLog = () => {
+    if (!pendingExpiredReview) return;
+    const plainSession = buildExpiredSession(pendingExpiredReview, pendingExpiredReview.loggedExercises);
+    saveSessionToHistory(plainSession);
+    clearExpiredReview();
+    setAutologMessage(t('autolog.message.current', { name: pendingExpiredReview.routineName, minutes: pendingExpiredReview.maxLimitMinutes }));
   };
 
   const handleExportData = () => {
@@ -586,14 +711,7 @@ export default function App() {
 
   // Handle Finished Session Submission
   const handleFinishWorkout = (session: WorkoutSession) => {
-    const updatedHistory = [session, ...history];
-    setHistory(updatedHistory);
-    localStorage.setItem('gym_history', JSON.stringify(updatedHistory));
-    setResumableRoutine(null);
-    setResumeElapsed(0);
-    
-    setCurrentScreen('dashboard');
-    setActiveTab('history'); // route to log history
+    saveSessionToHistory(session);
 
     if (session.id.startsWith('autosession-')) {
       setAutologMessage(t('autolog.message.current', { name: session.routineName, minutes: settings.maxWorkoutDuration || 120 }));
@@ -675,6 +793,18 @@ export default function App() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const pendingReviewRows = pendingExpiredReview
+    ? pendingExpiredReview.loggedExercises
+        .map(logged => ({
+          logged,
+          exercise: exercisesList.find(ex => ex.id === logged.exerciseId),
+          completedSets: logged.sets.filter(set => set.completed).length,
+          totalSets: logged.sets.length
+        }))
+        .filter(row => row.totalSets > 0)
+    : [];
+  const selectedReviewCount = pendingReviewRows.filter(row => reviewExerciseState[row.logged.exerciseId]).length;
+
   return (
     <LocalizationProvider language={language}>
     <div className="notranslate min-h-screen bg-black text-zinc-100 flex flex-col font-sans relative antialiased selection:bg-[rgb(var(--accent-600))] selection:text-white" id="gym-notepad-app">
@@ -690,6 +820,7 @@ export default function App() {
           exercisesList={exercisesList}
           settings={settings}
           onFinish={handleFinishWorkout}
+          onExpireForReview={handleExpiredWorkoutReview}
           onCancel={() => {
             setCurrentScreen('dashboard');
           }}
@@ -710,7 +841,10 @@ export default function App() {
           onUpdatePlannedConfig={detailPlannedCtx ? handleUpdatePlannedConfig : undefined}
           onRemovePlannedConfig={detailPlannedCtx ? handleRemovePlannedConfig : undefined}
           manualPRs={manualPRs}
+          hiddenPRs={hiddenPRs}
+          showPrTracking={settings.showPrTracking ?? true}
           onSaveManualPr={handleSaveManualPr}
+          onHideManualPr={handleHideManualPr}
           showExerciseImage={settings.showExerciseImage ?? false}
           showHelpText={settings.showHelpText ?? true}
           onBack={() => { setCurrentScreen('dashboard'); setDetailPlannedCtx(null); }}
@@ -787,7 +921,10 @@ export default function App() {
                   onUpdateExercises={handleUpdateExercises}
                   onUpdateSettings={handleUpdateSettings}
                   manualPRs={manualPRs}
+                  hiddenPRs={hiddenPRs}
+                  showPrTracking={settings.showPrTracking ?? true}
                   onSaveManualPr={handleSaveManualPr}
+                  onHideManualPr={handleHideManualPr}
                   onOpenCalendarPlanner={() => setShowScheduleModal(true)}
                   selectedRoutineId={selectedRoutineId}
                   onSelectRoutineId={setSelectedRoutineId}
@@ -907,6 +1044,18 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center justify-between border-t border-zinc-900/60 pt-4">
+                    <div className="pr-3">
+                      <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.reviewExpiredWorkouts')}</span>
+                      <span className="text-[10px] text-zinc-500 block">{t('settings.reviewExpiredWorkouts.help')}</span>
+                    </div>
+                    <ToggleSwitch
+                      label={t('settings.reviewExpiredWorkouts')}
+                      checked={settings.reviewExpiredWorkouts ?? true}
+                      onChange={(next) => handleUpdateSettings({ ...settings, reviewExpiredWorkouts: next })}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between border-t border-zinc-900/60 pt-4">
                     <div>
                       <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.soundAlerts')}</span>
                       <span className="text-[10px] text-zinc-500 block">{t('settings.soundAlerts.help')}</span>
@@ -987,6 +1136,18 @@ export default function App() {
                       label={t('settings.visualizer')}
                       checked={settings.showExerciseImage ?? false}
                       onChange={(next) => handleUpdateSettings({ ...settings, showExerciseImage: next })}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 border-t border-zinc-900/60 pt-4">
+                    <div>
+                      <span className="text-sm font-bold text-zinc-200 block font-sans">{t('settings.prTracking')}</span>
+                      <span className="text-[10px] text-zinc-500 block">{t('settings.prTracking.help')}</span>
+                    </div>
+                    <ToggleSwitch
+                      label={t('settings.prTracking')}
+                      checked={settings.showPrTracking ?? true}
+                      onChange={(next) => handleUpdateSettings({ ...settings, showPrTracking: next })}
                     />
                   </div>
 
@@ -1388,6 +1549,77 @@ export default function App() {
                 className="w-full py-4 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-500))] hover:from-[rgb(var(--accent-500))] text-white rounded-2xl text-xs font-extrabold tracking-wider shadow shadow-[rgb(var(--accent-800)/0.5)] transition-all border border-[rgb(var(--accent-500)/0.1)]"
               >
                 {t('celebration.continue')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EXPIRED WORKOUT REVIEW */}
+      {pendingExpiredReview && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-5">
+          <div className="bg-zinc-950 border border-[rgb(var(--accent-800)/0.4)] w-full max-w-sm rounded-[34px] overflow-hidden p-5 shadow-2xl relative animate-scale-up space-y-5">
+            <div className="flex items-start gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-[rgb(var(--accent-600)/0.15)] border border-[rgb(var(--accent-500)/0.20)] text-[rgb(var(--accent-400))] flex items-center justify-center shrink-0">
+                <CheckCircle className="w-6 h-6" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] text-[rgb(var(--accent-400))] font-black uppercase tracking-widest">{t('expiredReview.eyebrow')}</p>
+                <h3 className="text-base font-black text-white tracking-tight">{t('expiredReview.title')}</h3>
+                <p className="text-xs text-zinc-400 leading-relaxed mt-1">
+                  {t('expiredReview.message', { name: pendingExpiredReview.routineName, minutes: pendingExpiredReview.maxLimitMinutes })}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {pendingReviewRows.map(({ logged, exercise, completedSets, totalSets }) => {
+                const selected = !!reviewExerciseState[logged.exerciseId];
+                return (
+                  <button
+                    key={logged.exerciseId}
+                    type="button"
+                    onClick={() => setReviewExerciseState(prev => ({ ...prev, [logged.exerciseId]: !prev[logged.exerciseId] }))}
+                    className={`w-full p-3 rounded-2xl border transition flex items-center gap-3 text-left ${
+                      selected
+                        ? 'bg-[rgb(var(--accent-600)/0.12)] border-[rgb(var(--accent-500)/0.35)]'
+                        : 'bg-zinc-900/35 border-zinc-900 hover:border-zinc-800'
+                    }`}
+                  >
+                    <PoseIcon name={exercise?.poseIcon || 'generic'} size={34} className="shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-black text-zinc-100 truncate">{exercise?.name || logged.exerciseId}</span>
+                      <span className="block text-[10px] font-semibold text-zinc-500">
+                        {t('expiredReview.setsBuffered', { completed: completedSets, total: totalSets })}
+                      </span>
+                    </span>
+                    <span className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${
+                      selected
+                        ? 'bg-[rgb(var(--accent-600))] border-[rgb(var(--accent-500))] text-white'
+                        : 'border-zinc-700 text-transparent'
+                    }`}>
+                      <CheckCircle className="w-3.5 h-3.5" />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={handlePlainExpiredWorkoutLog}
+                className="py-3 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-400 rounded-xl text-[10px] uppercase font-black tracking-wider transition"
+              >
+                {t('expiredReview.autoLog')}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveReviewedExpiredWorkout}
+                disabled={selectedReviewCount === 0}
+                className="py-3 bg-gradient-to-r from-[rgb(var(--accent-600))] to-[rgb(var(--accent-500))] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-[10px] uppercase font-black tracking-wider transition shadow-lg"
+              >
+                {t('expiredReview.saveSelected')}
               </button>
             </div>
           </div>

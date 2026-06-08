@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { Routine, Exercise, WorkoutSession, LoggedExercise, LoggedSet, WorkoutSettings } from '../types';
+import { Routine, Exercise, WorkoutSession, LoggedExercise, LoggedSet, WorkoutSettings, ExpiredWorkoutReview } from '../types';
 import { PoseIcon } from './PoseIcon';
 import { Modal } from './Modal';
 import { ConfirmModal } from './ConfirmModal';
@@ -42,6 +42,7 @@ interface ActiveSessionProps {
   exercisesList: Exercise[];
   settings: WorkoutSettings;
   onFinish: (session: WorkoutSession) => void;
+  onExpireForReview?: (review: ExpiredWorkoutReview) => void;
   onCancel: () => void;
 }
 
@@ -50,6 +51,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
   exercisesList,
   settings,
   onFinish,
+  onExpireForReview,
   onCancel
 }) => {
   const { t } = useI18n();
@@ -214,15 +216,32 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
     const maxLimitSeconds = maxLimitMinutes * 60;
 
     if (elapsedSeconds >= maxLimitSeconds) {
+      const reviewPayload: ExpiredWorkoutReview = {
+        routineId: routine.id,
+        routineName: routine.name || t('active.session'),
+        startTime: Date.now() - (elapsedSeconds * 1000),
+        elapsedSeconds: maxLimitSeconds,
+        loggedExercises: loggedExercises.filter(le => le.sets.length > 0),
+        notes,
+        maxLimitMinutes
+      };
+
+      if ((settings.reviewExpiredWorkouts ?? true) && onExpireForReview) {
+        skipPersistRef.current = true;
+        localStorage.removeItem('gym_active_session_data');
+        onExpireForReview(reviewPayload);
+        return;
+      }
+
       // Auto-compile completed exercises
       const finalizedSession: WorkoutSession = {
         id: `autosession-${Date.now()}`,
-        routineId: routine.id,
-        routineName: routine.name || 'Auto-logged Session',
-        startTime: Date.now() - (elapsedSeconds * 1000),
+        routineId: reviewPayload.routineId,
+        routineName: reviewPayload.routineName,
+        startTime: reviewPayload.startTime,
         endTime: Date.now(),
         elapsedSeconds: maxLimitSeconds,
-        exercises: loggedExercises.filter(le => le.sets.length > 0),
+        exercises: reviewPayload.loggedExercises,
         notes: (notes.trim() ? notes.trim() + ' \n' : '') + `[Auto-logged after reaching the maximum limit of ${maxLimitMinutes} minutes]`
       };
 
@@ -233,7 +252,7 @@ export const ActiveSession: React.FC<ActiveSessionProps> = ({
       // Submit callback and let App show the user-facing auto-log notice.
       onFinish(finalizedSession);
     }
-  }, [elapsedSeconds, routine, loggedExercises, notes, settings.maxWorkoutDuration, onFinish]);
+  }, [elapsedSeconds, routine, loggedExercises, notes, settings.maxWorkoutDuration, settings.reviewExpiredWorkouts, onFinish, onExpireForReview, t]);
 
   // Plays a short two-tone beep using the WebAudio API. No external file,
   // no dependency. Wrapped in a try/catch because some mobile browsers

@@ -104,6 +104,8 @@ export interface WorkoutSettings {
   language?: LanguageCode;
   showExerciseImage?: boolean; // photographic exercise "visualizer" backdrop (default off)
   showHelpText?: boolean; // constant explanatory subtitles under cards (default on)
+  showPrTracking?: boolean; // show PR badges/logging controls (default on)
+  reviewExpiredWorkouts?: boolean; // prompt to review max-timer sessions before saving (default on)
   // NOTE (future): a dedicated "Minimalist mode" will collapse help text,
   // descriptions and other learn-the-ropes affordances for seasoned users.
 }
@@ -112,6 +114,16 @@ export interface ManualPRRecord {
   value: number;
   reps?: number;
   unit: string;
+}
+
+export interface ExpiredWorkoutReview {
+  routineId: string;
+  routineName: string;
+  startTime: number;
+  elapsedSeconds: number;
+  loggedExercises: LoggedExercise[];
+  notes?: string;
+  maxLimitMinutes: number;
 }
 
 export interface BodyWeightEntry {

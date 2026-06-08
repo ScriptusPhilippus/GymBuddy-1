@@ -26,8 +26,14 @@ interface ExerciseDetailProps {
   onRemovePlannedConfig?: () => void;
   /** App-owned manual PRs, persisted under gym_manual_prs. */
   manualPRs?: Record<string, ManualPRRecord>;
+  /** Exercise ids whose PR summary should be hidden without deleting history. */
+  hiddenPRs?: Record<string, true>;
+  /** Hide PR row/editor for a minimal interface. */
+  showPrTracking?: boolean;
   /** Save a manual PR override from the detail sheet. */
   onSaveManualPr?: (exerciseId: string, value: number, reps: number, unit: string) => void;
+  /** Hide/remove this exercise's PR summary. */
+  onHideManualPr?: (exerciseId: string) => void;
   /** Show the photographic "visualizer" backdrop (archived/off by default). */
   showExerciseImage?: boolean;
   /** Hide constant helper notes when Settings turns helper descriptions off. */
@@ -45,7 +51,10 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
   onUpdatePlannedConfig,
   onRemovePlannedConfig,
   manualPRs = {},
+  hiddenPRs = {},
+  showPrTracking = true,
   onSaveManualPr,
+  onHideManualPr,
   showExerciseImage = false,
   showHelpText = true
 }) => {
@@ -173,6 +182,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
 
   const routinePrSummary = useMemo(() => {
     const empty = { value: 0, reps: 0, unit: undefined as string | undefined };
+    if (hiddenPRs[exercise.id]) return empty;
     try {
       const manual = manualPRs[exercise.id];
       const summary = manual
@@ -199,7 +209,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
     } catch {
       return empty;
     }
-  }, [exercise.id, manualPRs]);
+  }, [exercise.id, manualPRs, hiddenPRs]);
 
   const openPrEditor = () => {
     setPrValue(routinePrSummary.value || 0);
@@ -312,31 +322,33 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                 </select>
               </div>
 
-              <div className="flex items-center justify-between border-t border-[rgb(var(--accent-900)/0.20)] pt-3">
-                <span className="text-xs font-bold text-zinc-300">{t('detail.currentPr')}</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-mono font-black text-[rgb(var(--accent-300))] bg-[rgb(var(--accent-600)/0.10)] border border-[rgb(var(--accent-500)/0.20)] px-2.5 py-1.5 rounded-xl">
-                    {routinePrSummary.value > 0 ? (
-                      <>
-                        {routinePrSummary.value}
-                        {routinePrSummary.reps > 0 && <> × {routinePrSummary.reps}</>}
-                        <span className="text-[rgb(var(--accent-400))] uppercase tracking-widest text-[9px] ml-1">{prTraits.shortLabel}</span>
-                      </>
-                    ) : (
-                      <span className="text-zinc-500">{t('detail.noPr')}</span>
+              {showPrTracking && (
+                <div className="flex items-center justify-between border-t border-[rgb(var(--accent-900)/0.20)] pt-3">
+                  <span className="text-xs font-bold text-zinc-300">{t('detail.currentPr')}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-mono font-black text-[rgb(var(--accent-300))] bg-[rgb(var(--accent-600)/0.10)] border border-[rgb(var(--accent-500)/0.20)] px-2.5 py-1.5 rounded-xl">
+                      {routinePrSummary.value > 0 ? (
+                        <>
+                          {routinePrSummary.value}
+                          {routinePrSummary.reps > 0 && <> × {routinePrSummary.reps}</>}
+                          <span className="text-[rgb(var(--accent-400))] uppercase tracking-widest text-[9px] ml-1">{prTraits.shortLabel}</span>
+                        </>
+                      ) : (
+                        <span className="text-zinc-500">{t('detail.noPr')}</span>
+                      )}
+                    </span>
+                    {onSaveManualPr && (
+                      <button
+                        type="button"
+                        onClick={openPrEditor}
+                        className="text-[9px] text-[rgb(var(--accent-400))] hover:text-[rgb(var(--accent-300))] font-black tracking-widest uppercase bg-[rgb(var(--accent-600)/0.15)] px-2.5 py-1.5 rounded-lg border border-[rgb(var(--accent-500)/0.25)] hover:bg-[rgb(var(--accent-600)/0.20)] transition"
+                      >
+                        {routinePrSummary.value > 0 ? t('detail.edit') : t('dashboard.logPr')}
+                      </button>
                     )}
-                  </span>
-                  {onSaveManualPr && (
-                    <button
-                      type="button"
-                      onClick={openPrEditor}
-                      className="text-[9px] text-[rgb(var(--accent-400))] hover:text-[rgb(var(--accent-300))] font-black tracking-widest uppercase bg-[rgb(var(--accent-600)/0.15)] px-2.5 py-1.5 rounded-lg border border-[rgb(var(--accent-500)/0.25)] hover:bg-[rgb(var(--accent-600)/0.20)] transition"
-                    >
-                      {routinePrSummary.value > 0 ? t('detail.edit') : t('dashboard.logPr')}
-                    </button>
-                  )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Sets (only when the unit supports multiple sets) */}
               {traits.supportsSets && (
@@ -586,7 +598,7 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
       </div>
 
       {/* PR editor shared with the routine-target Current PR row. */}
-      {showPrEditor && (
+      {showPrTracking && showPrEditor && (
         <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-zinc-950 border border-zinc-900 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative select-none animate-in fade-in zoom-in-95 duration-200">
             <button
@@ -658,6 +670,19 @@ export const ExerciseDetail: React.FC<ExerciseDetailProps> = ({
                 </select>
               </div>
             </div>
+
+            {routinePrSummary.value > 0 && onHideManualPr && (
+              <button
+                type="button"
+                onClick={() => {
+                  onHideManualPr(exercise.id);
+                  setShowPrEditor(false);
+                }}
+                className="w-full mb-3 py-2.5 bg-red-950/10 border border-red-900/30 hover:bg-red-950/20 text-red-300/80 hover:text-red-200 rounded-xl text-[10px] uppercase font-black tracking-wider transition"
+              >
+                {t('pr.remove')}
+              </button>
+            )}
 
             <div className="flex gap-2.5">
               <button
